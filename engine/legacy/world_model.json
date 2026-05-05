@@ -1,0 +1,233 @@
+{
+  "module": "world_model",
+  "version": "3.0.0",
+  "timestamp": 1777533067.7871578,
+  "saved_at": "2026-04-30T15:11:07.787157",
+  "data": {
+    "transitions": {
+      "b83310e476671a83": {
+        "failure": {
+          "b83310e476671a83": {
+            "count": 1,
+            "total_reward": -1.0
+          }
+        },
+        "success": {
+          "a76f91c13437de1c": {
+            "count": 4,
+            "total_reward": 4.0
+          }
+        }
+      },
+      "a76f91c13437de1c": {
+        "failure": {
+          "b83310e476671a83": {
+            "count": 3,
+            "total_reward": -3.0
+          }
+        }
+      },
+      "65ba250bcacdc066": {
+        "success": {
+          "65c8f6cbed119f62": {
+            "count": 4,
+            "total_reward": 4.0
+          }
+        }
+      },
+      "65c8f6cbed119f62": {
+        "failure": {
+          "65ba250bcacdc066": {
+            "count": 3,
+            "total_reward": -3.0
+          }
+        }
+      },
+      "95a25677d941f901": {
+        "success": {
+          "d51fe5712a04566b": {
+            "count": 1,
+            "total_reward": 1.0
+          }
+        }
+      },
+      "7ab1caf9cec3bcbd": {
+        "success": {
+          "7609f0a44206ea36": {
+            "count": 1,
+            "total_reward": 1.0
+          }
+        }
+      },
+      "7609f0a44206ea36": {
+        "failure": {
+          "7ab1caf9cec3bcbd": {
+            "count": 1,
+            "total_reward": -1.0
+          }
+        }
+      },
+      "7f634b5dc0f880a0": {
+        "success": {
+          "7f634b5dc0f880a0": {
+            "count": 1,
+            "total_reward": 1.0
+          }
+        }
+      },
+      "3abaf52a27effe06": {
+        "success": {
+          "3abaf52a27effe06": {
+            "count": 1,
+            "total_reward": 1.0
+          }
+        }
+      }
+    },
+    "rewards": {},
+    "state_meta": {
+      "b83310e476671a83": {
+        "task_type": "api_proxy",
+        "context_keys": [
+          "issue",
+          "lesson",
+          "task"
+        ],
+        "sample_count": 5,
+        "first_seen": 1777532986.0885038,
+        "last_seen": 1777532986.1563106
+      },
+      "a76f91c13437de1c": {
+        "task_type": "api_proxy",
+        "context_keys": [
+          "result",
+          "solution",
+          "task"
+        ],
+        "sample_count": 4,
+        "first_seen": 1777532986.098304,
+        "last_seen": 1777532986.1686838
+      },
+      "65ba250bcacdc066": {
+        "task_type": "electron_dev",
+        "context_keys": [
+          "issue",
+          "lesson",
+          "task"
+        ],
+        "sample_count": 4,
+        "first_seen": 1777532986.1795034,
+        "last_seen": 1777532986.2286491
+      },
+      "65c8f6cbed119f62": {
+        "task_type": "electron_dev",
+        "context_keys": [
+          "result",
+          "solution",
+          "task"
+        ],
+        "sample_count": 4,
+        "first_seen": 1777532986.1864848,
+        "last_seen": 1777532986.2415946
+      },
+      "95a25677d941f901": {
+        "task_type": "coding",
+        "context_keys": [
+          "issue",
+          "lesson",
+          "task"
+        ],
+        "sample_count": 1,
+        "first_seen": 1777532986.25132,
+        "last_seen": 1777532986.25132
+      },
+      "d51fe5712a04566b": {
+        "task_type": "coding",
+        "context_keys": [
+          "result",
+          "solution",
+          "task"
+        ],
+        "sample_count": 1,
+        "first_seen": 1777532986.2563179,
+        "last_seen": 1777532986.2563179
+      },
+      "7ab1caf9cec3bcbd": {
+        "task_type": "cli_tool",
+        "context_keys": [
+          "issue",
+          "lesson",
+          "task"
+        ],
+        "sample_count": 2,
+        "first_seen": 1777532986.265995,
+        "last_seen": 1777532986.2836597
+      },
+      "7609f0a44206ea36": {
+        "task_type": "cli_tool",
+        "context_keys": [
+          "result",
+          "solution",
+          "task"
+        ],
+        "sample_count": 1,
+        "first_seen": 1777532986.2769656,
+        "last_seen": 1777532986.2769656
+      },
+      "46501a264204e408": {
+        "task_type": "llm_integration",
+        "context_keys": [
+          "issue",
+          "lesson",
+          "task"
+        ],
+        "sample_count": 1,
+        "first_seen": 1777532986.288647,
+        "last_seen": 1777532986.288647
+      },
+      "29668a900bda8e83": {
+        "task_type": "asr_integration",
+        "context_keys": [
+          "lesson",
+          "task"
+        ],
+        "sample_count": 1,
+        "first_seen": 1777532986.2946308,
+        "last_seen": 1777532986.2946308
+      },
+      "7f634b5dc0f880a0": {
+        "task_type": "workflow",
+        "context_keys": [
+          "lesson",
+          "task"
+        ],
+        "sample_count": 2,
+        "first_seen": 1777532986.3026543,
+        "last_seen": 1777532986.3119307
+      },
+      "21c337c4ae5a671f": {
+        "task_type": "visual_design",
+        "context_keys": [
+          "lesson",
+          "task"
+        ],
+        "sample_count": 1,
+        "first_seen": 1777532986.3138516,
+        "last_seen": 1777532986.3138516
+      },
+      "3abaf52a27effe06": {
+        "task_type": "memory_system",
+        "context_keys": [
+          "lesson",
+          "task"
+        ],
+        "sample_count": 2,
+        "first_seen": 1777532986.318851,
+        "last_seen": 1777532986.3314688
+      }
+    },
+    "total_updates": 29,
+    "last_obs_state": "3abaf52a27effe06",
+    "last_obs_task_type": "memory_system"
+  }
+}

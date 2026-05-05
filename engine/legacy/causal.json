@@ -1,0 +1,262 @@
+{
+  "module": "causal",
+  "version": "3.0.0",
+  "timestamp": 1777533067.791383,
+  "saved_at": "2026-04-30T15:11:07.791383",
+  "data": {
+    "graph": {
+      "1bccc9241306d698": {
+        "variables": {
+          "task_type": "api_proxy",
+          "result_before": "failure"
+        },
+        "children": [],
+        "parents": [],
+        "strength": 0.0,
+        "observations": 0
+      },
+      "61881c8a2f95cdb4": {
+        "variables": {
+          "result": "failure"
+        },
+        "children": [],
+        "parents": [],
+        "strength": 0.0,
+        "observations": 0
+      },
+      "ce1d2732e8cc59e0": {
+        "variables": {
+          "task_type": "api_proxy",
+          "result_before": "success"
+        },
+        "children": [
+          "ed0bf75af858f559"
+        ],
+        "parents": [],
+        "strength": 0.657,
+        "observations": 0
+      },
+      "ed0bf75af858f559": {
+        "variables": {
+          "result": "success"
+        },
+        "children": [],
+        "parents": [
+          "ce1d2732e8cc59e0",
+          "4f4804848496bfc5"
+        ],
+        "strength": 0.0,
+        "observations": 0
+      },
+      "2daa7e23669026e5": {
+        "variables": {
+          "trigger": "anomaly"
+        },
+        "children": [
+          "8e6e8466ac9bd6d0"
+        ],
+        "parents": [],
+        "strength": 0.5256,
+        "observations": 0
+      },
+      "8e6e8466ac9bd6d0": {
+        "variables": {
+          "anomaly": {
+            "task_type": "api_proxy"
+          }
+        },
+        "children": [],
+        "parents": [
+          "2daa7e23669026e5"
+        ],
+        "strength": 0.0,
+        "observations": 0
+      },
+      "e02dbe2fa066bcd0": {
+        "variables": {
+          "task_type": "electron_dev",
+          "result_before": "failure"
+        },
+        "children": [],
+        "parents": [],
+        "strength": 0.0,
+        "observations": 0
+      },
+      "4f4804848496bfc5": {
+        "variables": {
+          "task_type": "electron_dev",
+          "result_before": "success"
+        },
+        "children": [
+          "ed0bf75af858f559"
+        ],
+        "parents": [],
+        "strength": 0.657,
+        "observations": 0
+      },
+      "391d9594387b926f": {
+        "variables": {
+          "anomaly": {
+            "task_type": "electron_dev"
+          }
+        },
+        "children": [],
+        "parents": [],
+        "strength": 0.0,
+        "observations": 0
+      },
+      "6cb543c6cdaf41cd": {
+        "variables": {
+          "task_type": "coding",
+          "result_before": "failure"
+        },
+        "children": [],
+        "parents": [],
+        "strength": 0.0,
+        "observations": 0
+      },
+      "6766be56d72ca712": {
+        "variables": {
+          "task_type": "coding",
+          "result_before": "success"
+        },
+        "children": [],
+        "parents": [],
+        "strength": 0.0,
+        "observations": 0
+      },
+      "fea11f651d2a42c9": {
+        "variables": {
+          "task_type": "cli_tool",
+          "result_before": "failure"
+        },
+        "children": [],
+        "parents": [],
+        "strength": 0.0,
+        "observations": 0
+      },
+      "da2969325a2c779f": {
+        "variables": {
+          "task_type": "cli_tool",
+          "result_before": "success"
+        },
+        "children": [],
+        "parents": [],
+        "strength": 0.0,
+        "observations": 0
+      },
+      "ca5fd087a7a37007": {
+        "variables": {
+          "task_type": "llm_integration",
+          "result_before": "failure"
+        },
+        "children": [],
+        "parents": [],
+        "strength": 0.0,
+        "observations": 0
+      },
+      "4716391579f9a036": {
+        "variables": {
+          "task_type": "asr_integration",
+          "result_before": "success"
+        },
+        "children": [],
+        "parents": [],
+        "strength": 0.0,
+        "observations": 0
+      },
+      "9d08e6dd3ac90e4b": {
+        "variables": {
+          "task_type": "workflow",
+          "result_before": "success"
+        },
+        "children": [],
+        "parents": [],
+        "strength": 0.0,
+        "observations": 0
+      },
+      "c3fba8b93e9e556f": {
+        "variables": {
+          "task_type": "visual_design",
+          "result_before": "success"
+        },
+        "children": [],
+        "parents": [],
+        "strength": 0.0,
+        "observations": 0
+      },
+      "7a83d464b3ca379a": {
+        "variables": {
+          "task_type": "memory_system",
+          "result_before": "success"
+        },
+        "children": [],
+        "parents": [],
+        "strength": 0.0,
+        "observations": 0
+      }
+    },
+    "observations": {
+      "1bccc9241306d698->61881c8a2f95cdb4": {
+        "count": 5,
+        "avg_strength": -0.41596500000000003
+      },
+      "ce1d2732e8cc59e0->ed0bf75af858f559": {
+        "count": 4,
+        "avg_strength": 0.7599
+      },
+      "2daa7e23669026e5->8e6e8466ac9bd6d0": {
+        "count": 3,
+        "avg_strength": 0.5256
+      },
+      "e02dbe2fa066bcd0->61881c8a2f95cdb4": {
+        "count": 4,
+        "avg_strength": -0.37995
+      },
+      "4f4804848496bfc5->ed0bf75af858f559": {
+        "count": 4,
+        "avg_strength": 0.7599
+      },
+      "2daa7e23669026e5->391d9594387b926f": {
+        "count": 2,
+        "avg_strength": 0.408
+      },
+      "6cb543c6cdaf41cd->61881c8a2f95cdb4": {
+        "count": 1,
+        "avg_strength": -0.15
+      },
+      "6766be56d72ca712->ed0bf75af858f559": {
+        "count": 1,
+        "avg_strength": 0.3
+      },
+      "fea11f651d2a42c9->61881c8a2f95cdb4": {
+        "count": 2,
+        "avg_strength": -0.255
+      },
+      "da2969325a2c779f->ed0bf75af858f559": {
+        "count": 1,
+        "avg_strength": 0.3
+      },
+      "ca5fd087a7a37007->61881c8a2f95cdb4": {
+        "count": 1,
+        "avg_strength": -0.15
+      },
+      "4716391579f9a036->ed0bf75af858f559": {
+        "count": 1,
+        "avg_strength": 0.3
+      },
+      "9d08e6dd3ac90e4b->ed0bf75af858f559": {
+        "count": 2,
+        "avg_strength": 0.51
+      },
+      "c3fba8b93e9e556f->ed0bf75af858f559": {
+        "count": 1,
+        "avg_strength": 0.3
+      },
+      "7a83d464b3ca379a->ed0bf75af858f559": {
+        "count": 2,
+        "avg_strength": 0.51
+      }
+    }
+  }
+}

@@ -1,0 +1,53 @@
+# Database & runtime
+graph.db
+graph.db.bak-*
+*.db-journal
+*.db-wal
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Models (downloaded at runtime)
+models/
+
+# Generated files
+hot/memory.md
+cold/archive/
+proposals/pending.md
+reflections/log.md
+
+# Backups & releases
+releases/
+*.zip
+
+# Test artifacts
+*_test_*.txt
+_test_*.py
+_test_*.ps1
+cc_test3_*
+_check_deps.py
+stream_test.txt
+
+# Development docs
+v4-blueprint.md
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log

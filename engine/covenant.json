@@ -1,0 +1,145 @@
+{
+  "module": "covenant",
+  "version": "3.0.0",
+  "timestamp": 1777533067.8053467,
+  "saved_at": "2026-04-30T15:11:07.805346",
+  "data": {
+    "rules": {
+      "edc253c21ae5": {
+        "condition": {},
+        "action": "因果策略: {\"task_type\": \"api_proxy\", \"result_before\": \"success\"} → {\"result\": \"success\"}",
+        "priority": 1.0,
+        "source": "evo_devo",
+        "status": "active",
+        "fires": 0,
+        "created_at": 1777532986.1716757
+      },
+      "8b627b83d195": {
+        "condition": {},
+        "action": "因果策略: {\"task_type\": \"electron_dev\", \"result_before\": \"success\"} → {\"result\": \"success\"}",
+        "priority": 1.0,
+        "source": "evo_devo",
+        "status": "active",
+        "fires": 0,
+        "created_at": 1777532986.244586
+      }
+    },
+    "covenants": {
+      "cov_1": {
+        "trigger": "rule_edc253c2",
+        "rule_id": "edc253c21ae5",
+        "diff": "{\"condition\": {}, \"action\": \"因果策略: {\\\"task_type\\\": \\\"api_proxy\\\", \\\"result_before\\\": \\\"success\\\"} → {\\\"result\\\": \\\"success\\\"}\"}",
+        "status": "active",
+        "rollback_point": "bak_20260430_150946_pre_edc253c2",
+        "created_at": 1777532986.1410015
+      },
+      "cov_2": {
+        "trigger": "rule_edc253c2",
+        "rule_id": "edc253c21ae5",
+        "diff": "{\"condition\": {}, \"action\": \"因果策略: {\\\"task_type\\\": \\\"api_proxy\\\", \\\"result_before\\\": \\\"success\\\"} → {\\\"result\\\": \\\"success\\\"}\"}",
+        "status": "active",
+        "rollback_point": "bak_20260430_150946_pre_edc253c2",
+        "created_at": 1777532986.1716757
+      },
+      "cov_3": {
+        "trigger": "rule_8b627b83",
+        "rule_id": "8b627b83d195",
+        "diff": "{\"condition\": {}, \"action\": \"因果策略: {\\\"task_type\\\": \\\"electron_dev\\\", \\\"result_before\\\": \\\"success\\\"} → {\\\"result\\\": \\\"success\\\"}\"}",
+        "status": "active",
+        "rollback_point": "bak_20260430_150946_pre_8b627b83",
+        "created_at": 1777532986.2166815
+      },
+      "cov_4": {
+        "trigger": "rule_8b627b83",
+        "rule_id": "8b627b83d195",
+        "diff": "{\"condition\": {}, \"action\": \"因果策略: {\\\"task_type\\\": \\\"electron_dev\\\", \\\"result_before\\\": \\\"success\\\"} → {\\\"result\\\": \\\"success\\\"}\"}",
+        "status": "active",
+        "rollback_point": "bak_20260430_150946_pre_8b627b83",
+        "created_at": 1777532986.244586
+      }
+    },
+    "veto_queue": {
+      "fe5c159d84c5": {
+        "condition": {},
+        "action": "概念迁移: api_proxy_pattern_1",
+        "source": "evo_devo",
+        "priority": 1.0,
+        "reason": "规则与 1 个失败模式冲突",
+        "status": "vetoed",
+        "created_at": 1777532986.1209683
+      },
+      "b404002181dd": {
+        "condition": {},
+        "action": "因果策略: {\"trigger\": \"anomaly\"} → {\"anomaly\": {\"task_type\": \"api_proxy\"}}",
+        "source": "evo_devo",
+        "priority": 1.0,
+        "reason": "low_confidence(0.26)",
+        "status": "suspended",
+        "created_at": 1777532986.151311
+      },
+      "377098730adf": {
+        "condition": {},
+        "action": "概念迁移: electron_dev_pattern_2",
+        "source": "evo_devo",
+        "priority": 1.0,
+        "reason": "规则与 1 个失败模式冲突",
+        "status": "vetoed",
+        "created_at": 1777532986.2316217
+      },
+      "39cc752d32a2": {
+        "condition": {},
+        "action": "概念迁移: api_proxy_pattern_1 [v2]",
+        "source": "evo_devo",
+        "priority": 1.0,
+        "reason": "规则与 1 个失败模式冲突",
+        "status": "vetoed",
+        "created_at": 1777533067.77377
+      },
+      "02f313506e6b": {
+        "condition": {},
+        "action": "概念迁移: electron_dev_pattern_2 [alt]",
+        "source": "evo_devo",
+        "priority": 1.0,
+        "reason": "规则与 1 个失败模式冲突",
+        "status": "vetoed",
+        "created_at": 1777533067.7766936
+      }
+    },
+    "veto_cooldowns": {
+      "33c7e8380704960c": 1777532986.1209683,
+      "7496c933d7c5eaf2": 1777532986.2316217,
+      "20cc6c57d974c6fe": 1777533067.77377,
+      "ed6df99a1b41e75c": 1777533067.7766936
+    },
+    "backups": [
+      {
+        "backup_id": "bak_20260430_150946_pre_edc253c2",
+        "is_milestone": false,
+        "created_at": "2026-04-30T15:09:46.171675",
+        "rule_count": 1
+      },
+      {
+        "backup_id": "bak_20260430_150946_pre_8b627b83",
+        "is_milestone": false,
+        "created_at": "2026-04-30T15:09:46.218676",
+        "rule_count": 1
+      },
+      {
+        "backup_id": "bak_20260430_150946_pre_8b627b83",
+        "is_milestone": false,
+        "created_at": "2026-04-30T15:09:46.245585",
+        "rule_count": 2
+      },
+      {
+        "backup_id": "bak_20260430_150946_pre_edc253c2",
+        "is_milestone": true,
+        "created_at": "2026-04-30T15:09:46.142996",
+        "rule_count": 0
+      }
+    ],
+    "total_proposed": 9,
+    "total_committed": 4,
+    "total_vetoed": 4,
+    "total_rolled_back": 0
+  }
+}

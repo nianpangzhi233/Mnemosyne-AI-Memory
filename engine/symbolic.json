@@ -1,0 +1,15 @@
+{
+  "module": "symbolic",
+  "version": "3.0.0",
+  "timestamp": 1777533067.7933772,
+  "saved_at": "2026-04-30T15:11:07.793377",
+  "data": {
+    "rules": {},
+    "rule_order": [],
+    "total_verifications": 12,
+    "total_deductions": 0,
+    "total_conflicts_resolved": 0,
+    "blocked_dangerous": 0,
+    "facts_emitted": 12
+  }
+}

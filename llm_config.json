@@ -1,0 +1,12 @@
+{
+    "enabled": false,
+    "endpoint": "http://127.0.0.1:8978/v1/chat/completions",
+    "model": "GLM-5.1",
+    "timeout": 120,
+    "sample_ratio": 0.1,
+    "undo_log_days": 7,
+    "confidence_thresholds": {
+        "high": 0.9,
+        "medium": 0.6
+    }
+}

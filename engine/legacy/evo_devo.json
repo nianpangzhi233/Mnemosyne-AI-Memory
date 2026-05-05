@@ -1,0 +1,103 @@
+{
+  "module": "evo_devo",
+  "version": "3.0.0",
+  "timestamp": 1777533067.7993624,
+  "saved_at": "2026-04-30T15:11:07.799362",
+  "data": {
+    "strategies": {
+      "f475a02ffe1e": {
+        "content": "概念迁移: api_proxy_pattern_1",
+        "task_type": "api_proxy",
+        "weight": 0.5956499999999999,
+        "origin": "concept",
+        "generation": 0,
+        "success_count": 2,
+        "failure_count": 2,
+        "created_at": 1777532986.1189754
+      },
+      "0da0c8da9004": {
+        "content": "因果策略: {\"task_type\": \"api_proxy\", \"result_before\": \"success\"} → {\"result\": \"success\"}",
+        "task_type": "api_proxy",
+        "weight": 0.369979875,
+        "origin": "causal",
+        "generation": 0,
+        "success_count": 2,
+        "failure_count": 1,
+        "created_at": 1777532986.139008
+      },
+      "3e76068f51b8": {
+        "content": "因果策略: {\"trigger\": \"anomaly\"} → {\"anomaly\": {\"task_type\": \"api_proxy\"}}",
+        "task_type": "general",
+        "weight": 0.23717699999999994,
+        "origin": "causal",
+        "generation": 0,
+        "success_count": 0,
+        "failure_count": 0,
+        "created_at": 1777532986.151311
+      },
+      "c8d394011e0e": {
+        "content": "因果策略: {\"task_type\": \"electron_dev\", \"result_before\": \"success\"} → {\"result\": \"success\"}",
+        "task_type": "electron_dev",
+        "weight": 0.369979875,
+        "origin": "causal",
+        "generation": 0,
+        "success_count": 2,
+        "failure_count": 1,
+        "created_at": 1777532986.2146895
+      },
+      "b7ed82a74e27": {
+        "content": "概念迁移: electron_dev_pattern_2",
+        "task_type": "electron_dev",
+        "weight": 0.6799999999999999,
+        "origin": "concept",
+        "generation": 0,
+        "success_count": 1,
+        "failure_count": 1,
+        "created_at": 1777532986.2286491
+      },
+      "8f7b91237073": {
+        "content": "概念迁移: api_proxy_pattern_1 [v2]",
+        "task_type": "api_proxy",
+        "weight": 0.285,
+        "origin": "mutated",
+        "generation": 2,
+        "success_count": 0,
+        "failure_count": 0,
+        "created_at": 1777533067.7677143
+      },
+      "fe36c455f17f": {
+        "content": "概念迁移: electron_dev_pattern_2 [alt]",
+        "task_type": "electron_dev",
+        "weight": 0.285,
+        "origin": "mutated",
+        "generation": 2,
+        "success_count": 0,
+        "failure_count": 0,
+        "created_at": 1777533067.770688
+      }
+    },
+    "task_index": {
+      "api_proxy": [
+        "f475a02ffe1e",
+        "0da0c8da9004",
+        "8f7b91237073"
+      ],
+      "general": [
+        "3e76068f51b8"
+      ],
+      "electron_dev": [
+        "c8d394011e0e",
+        "b7ed82a74e27",
+        "fe36c455f17f"
+      ]
+    },
+    "generation": 2,
+    "total_success": 4,
+    "total_failure": 3,
+    "evolutions_run": 2,
+    "strategies_proposed": 9,
+    "elite_ids": [
+      "b7ed82a74e27"
+    ]
+  }
+}

@@ -1,0 +1,239 @@
+{
+  "module": "concept",
+  "version": "3.0.0",
+  "timestamp": 1777533067.7963705,
+  "saved_at": "2026-04-30T15:11:07.796370",
+  "data": {
+    "facts": [
+      {
+        "task_type": "api_proxy",
+        "context": {},
+        "result": {},
+        "confidence": 1.0,
+        "timestamp": 1777532986.102769
+      },
+      {
+        "task_type": "api_proxy",
+        "context": {},
+        "result": {},
+        "confidence": 1.0,
+        "timestamp": 1777532986.1057618
+      },
+      {
+        "task_type": "api_proxy",
+        "context": {},
+        "result": {},
+        "confidence": 1.0,
+        "timestamp": 1777532986.1189754
+      },
+      {
+        "task_type": "api_proxy",
+        "context": {},
+        "result": {},
+        "confidence": 1.0,
+        "timestamp": 1777532986.1269526
+      },
+      {
+        "task_type": "api_proxy",
+        "context": {},
+        "result": {},
+        "confidence": 1.0,
+        "timestamp": 1777532986.1317778
+      },
+      {
+        "task_type": "api_proxy",
+        "context": {},
+        "result": {},
+        "confidence": 1.0,
+        "timestamp": 1777532986.1563106
+      },
+      {
+        "task_type": "api_proxy",
+        "context": {},
+        "result": {},
+        "confidence": 1.0,
+        "timestamp": 1777532986.1563106
+      },
+      {
+        "task_type": "api_proxy",
+        "context": {},
+        "result": {},
+        "confidence": 1.0,
+        "timestamp": 1777532986.1686838
+      },
+      {
+        "task_type": "electron_dev",
+        "context": {},
+        "result": {},
+        "confidence": 1.0,
+        "timestamp": 1777532986.2020943
+      },
+      {
+        "task_type": "electron_dev",
+        "context": {},
+        "result": {},
+        "confidence": 1.0,
+        "timestamp": 1777532986.2070887
+      },
+      {
+        "task_type": "electron_dev",
+        "context": {},
+        "result": {},
+        "confidence": 1.0,
+        "timestamp": 1777532986.2286491
+      },
+      {
+        "task_type": "electron_dev",
+        "context": {},
+        "result": {},
+        "confidence": 1.0,
+        "timestamp": 1777532986.2415946
+      }
+    ],
+    "clusters": {
+      "654812023f4b": {
+        "facts": [
+          {
+            "task_type": "api_proxy",
+            "context": {},
+            "result": {},
+            "confidence": 1.0,
+            "timestamp": 1777532986.102769
+          },
+          {
+            "task_type": "api_proxy",
+            "context": {},
+            "result": {},
+            "confidence": 1.0,
+            "timestamp": 1777532986.1057618
+          },
+          {
+            "task_type": "api_proxy",
+            "context": {},
+            "result": {},
+            "confidence": 1.0,
+            "timestamp": 1777532986.1189754
+          },
+          {
+            "task_type": "api_proxy",
+            "context": {},
+            "result": {},
+            "confidence": 1.0,
+            "timestamp": 1777532986.1269526
+          },
+          {
+            "task_type": "api_proxy",
+            "context": {},
+            "result": {},
+            "confidence": 1.0,
+            "timestamp": 1777532986.1317778
+          },
+          {
+            "task_type": "api_proxy",
+            "context": {},
+            "result": {},
+            "confidence": 1.0,
+            "timestamp": 1777532986.1563106
+          },
+          {
+            "task_type": "api_proxy",
+            "context": {},
+            "result": {},
+            "confidence": 1.0,
+            "timestamp": 1777532986.1563106
+          },
+          {
+            "task_type": "api_proxy",
+            "context": {},
+            "result": {},
+            "confidence": 1.0,
+            "timestamp": 1777532986.1686838
+          }
+        ],
+        "center": {
+          "task_type": "api_proxy",
+          "context": {},
+          "result": {},
+          "confidence": 1.0,
+          "timestamp": 1777532986.102769
+        },
+        "task_types": [
+          "api_proxy"
+        ],
+        "created": 1777532986.102769
+      },
+      "d92e2a31d81d": {
+        "facts": [
+          {
+            "task_type": "electron_dev",
+            "context": {},
+            "result": {},
+            "confidence": 1.0,
+            "timestamp": 1777532986.2020943
+          },
+          {
+            "task_type": "electron_dev",
+            "context": {},
+            "result": {},
+            "confidence": 1.0,
+            "timestamp": 1777532986.2070887
+          },
+          {
+            "task_type": "electron_dev",
+            "context": {},
+            "result": {},
+            "confidence": 1.0,
+            "timestamp": 1777532986.2286491
+          },
+          {
+            "task_type": "electron_dev",
+            "context": {},
+            "result": {},
+            "confidence": 1.0,
+            "timestamp": 1777532986.2415946
+          }
+        ],
+        "center": {
+          "task_type": "electron_dev",
+          "context": {},
+          "result": {},
+          "confidence": 1.0,
+          "timestamp": 1777532986.2020943
+        },
+        "task_types": [
+          "electron_dev"
+        ],
+        "created": 1777532986.2020943
+      }
+    },
+    "concepts": {
+      "2730f388e7fb": {
+        "name": "api_proxy_pattern_1",
+        "conditions": {},
+        "implications": {},
+        "confidence": 1.0,
+        "example_count": 3,
+        "task_types": [
+          "api_proxy"
+        ],
+        "created_at": 1777532986.1189754,
+        "cluster_id": "654812023f4b"
+      },
+      "bad605da668b": {
+        "name": "electron_dev_pattern_2",
+        "conditions": {},
+        "implications": {},
+        "confidence": 1.0,
+        "example_count": 3,
+        "task_types": [
+          "electron_dev"
+        ],
+        "created_at": 1777532986.2286491,
+        "cluster_id": "d92e2a31d81d"
+      }
+    },
+    "total_facts": 12,
+    "total_concepts_formed": 2,
+    "transfer_hits": 0
+  }
+}

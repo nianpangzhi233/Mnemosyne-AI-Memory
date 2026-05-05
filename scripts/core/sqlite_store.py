@@ -1,0 +1,755 @@
+#!/usr/bin/env python3
+"""SQLiteStore — 基于 SQLite 的图存储实现
+
+迁入现有 graph_write / graph_query / graph_dream 的核心逻辑：
+- add_node: 写节点 + 向量编码 + FTS5 触发器 + principle 自动建 is_a 边
+- add_edge: 写边，INSERT OR IGNORE 防重复
+- search_by_vector: 余弦相似度搜索，含 decay_score 加权
+- search_by_keyword: FTS5 MATCH 搜索
+- traverse: BFS 双向遍历关联节点
+- count_nodes / count_edges: 统计
+"""
+
+import json
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+import sqlite3
+
+from .graph_store import AbstractGraphStore
+from .embedder import BgeM3Embedder
+
+# 默认 db_path: scripts/core/../../graph.db → 项目根目录下
+_DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent.parent / "graph.db"
+
+
+def _now_iso() -> str:
+    """当前 UTC 时间的 ISO 8601 字符串"""
+    return datetime.now(timezone.utc).isoformat()
+
+
+class SQLiteStore(AbstractGraphStore):
+    """基于 SQLite + sqlite3 的图存储实现
+
+    内部复用 BgeM3Embedder 做向量编码，
+    用标准库 sqlite3 直接操作 graph.db。
+    """
+
+    def __init__(self, db_path: Optional[str] = None, embedder=None):
+        self._db_path = db_path or str(_DEFAULT_DB_PATH)
+        self._embedder = embedder or BgeM3Embedder()
+
+    # ── 连接管理 ──────────────────────────────────────────
+
+    def _connect(self) -> sqlite3.Connection:
+        return sqlite3.connect(self._db_path)
+
+    # ── 节点操作 ──────────────────────────────────────────
+
+    def add_node(self, content: str, node_type: str = "experience",
+                 task_type: Optional[str] = None, project: Optional[str] = None,
+                 tags: Optional[list] = None, principle: Optional[str] = None,
+                 **kwargs) -> str:
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+
+            # 第一优先：principle 精确归类
+            # 同 principle = 同一类经验，人脑的"抽象归类"
+            if principle and node_type == "experience":
+                cur.execute("""
+                    SELECT id, base_score, access_count FROM nodes
+                    WHERE principle = ? AND type = 'experience'
+                    ORDER BY base_score DESC LIMIT 1
+                """, (principle,))
+                match = cur.fetchone()
+                if match:
+                    matched_id, old_base, old_access = match
+                    new_base = min(1.5, old_base + 0.1)
+                    new_access = old_access + 1
+                    cur.execute("""
+                        UPDATE nodes SET base_score=?, decay_score=?,
+                                         access_count=?, last_access=?, updated_at=?
+                        WHERE id=?
+                    """, (new_base, min(2.0, new_base * 1.2), new_access,
+                          _now_iso(), _now_iso(), matched_id))
+
+                    cur.execute(
+                        "UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) "
+                        "WHERE key='total_nodes'"
+                    )
+                    conn.commit()
+                    return matched_id
+
+            # 第二优先：向量兜底（无 principle 时按语义相似度合并）
+            if node_type == "experience":
+                vector = self._embedder.encode(content)
+                vector_blob = vector.astype(np.float32).tobytes()
+
+                cur.execute("SELECT id, vector FROM nodes WHERE vector IS NOT NULL AND type='experience'")
+                existing = cur.fetchall()
+
+                best_id = None
+                best_sim = 0.0
+                for nid, vec_blob in existing:
+                    if vec_blob is None:
+                        continue
+                    vec = np.frombuffer(vec_blob, dtype=np.float32)
+                    sim = float(np.dot(vector, vec))
+                    if sim > best_sim:
+                        best_sim = sim
+                        best_id = nid
+
+                if best_id and best_sim > 0.92:
+                    cur.execute("SELECT base_score, access_count FROM nodes WHERE id=?", (best_id,))
+                    row = cur.fetchone()
+                    old_base = row[0] if row else 0.8
+                    old_access = row[1] if row else 0
+                    new_base = min(1.5, old_base + 0.1)
+                    cur.execute("""
+                        UPDATE nodes SET base_score=?, decay_score=?,
+                                         access_count=access_count+1,
+                                         last_access=?, updated_at=?
+                        WHERE id=?
+                    """, (new_base, min(2.0, new_base * 1.2), _now_iso(), _now_iso(), best_id))
+
+                    cur.execute(
+                        "UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) "
+                        "WHERE key='total_nodes'"
+                    )
+                    conn.commit()
+                    return best_id
+            else:
+                vector = self._embedder.encode(content)
+                vector_blob = vector.astype(np.float32).tobytes()
+
+            # 新建节点
+            if 'vector_blob' not in dir():
+                vector = self._embedder.encode(content)
+                vector_blob = vector.astype(np.float32).tobytes()
+
+            node_id = str(uuid.uuid4())
+            created = _now_iso()
+            tags_json = json.dumps(tags or [], ensure_ascii=False)
+            cur.execute("""
+                INSERT INTO nodes(id, type, content, principle, vector, tier,
+                                  decay_score, base_score, access_count, last_access,
+                                  created_at, updated_at, task_type, project, tags, metadata)
+                VALUES (?, ?, ?, ?, ?, 'hot', 0.8, 0.8, 1, ?, ?, ?, ?, ?, ?, '{}')
+            """, (node_id, node_type, content, principle, vector_blob,
+                  created, created, created, task_type, project, tags_json))
+
+            if principle:
+                cur.execute("""
+                    SELECT id FROM nodes
+                    WHERE principle = ? AND id != ? AND type != 'experience'
+                    LIMIT 1
+                """, (principle, node_id))
+                match = cur.fetchone()
+                if match:
+                    self._write_edge_inner(cur, node_id, match[0], "is_a",
+                                           weight=0.8, source="auto")
+
+            cur.execute(
+                "UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) "
+                "WHERE key='total_nodes'"
+            )
+            conn.commit()
+            return node_id
+        finally:
+            conn.close()
+
+    def get_node(self, node_id: str) -> Optional[Dict[str, Any]]:
+        """根据 ID 获取节点，返回字段字典或 None"""
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, type, content, principle, tier, decay_score, base_score,
+                       access_count, last_access, created_at, updated_at,
+                       task_type, project, tags, metadata
+                FROM nodes WHERE id = ?
+            """, (node_id,))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            keys = ["id", "type", "content", "principle", "tier", "decay_score",
+                    "base_score", "access_count", "last_access", "created_at",
+                    "updated_at", "task_type", "project", "tags", "metadata"]
+            result = dict(zip(keys, row))
+            # 反序列化 tags
+            if result.get("tags"):
+                try:
+                    result["tags"] = json.loads(result["tags"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            return result
+        finally:
+            conn.close()
+
+    # ── 边操作 ────────────────────────────────────────────
+
+    def add_edge(self, from_id: str, to_id: str, relation_type: str,
+                 weight: float = 0.5, source: str = "auto",
+                 **kwargs) -> str:
+        """写入一条边，返回 edge_id（已存在则返回空串）
+
+        逻辑迁自 graph_write.write_edge：
+        INSERT OR IGNORE 防重复 + 更新 meta.total_edges。
+        """
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            edge_id = str(uuid.uuid4())
+            created = _now_iso()
+            cur.execute("""
+                INSERT OR IGNORE INTO edges(id, from_id, to_id, relation_type,
+                                            weight, source, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'active', ?)
+            """, (edge_id, from_id, to_id, relation_type, weight, source, created))
+
+            if cur.rowcount > 0:
+                cur.execute(
+                    "UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) "
+                    "WHERE key='total_edges'"
+                )
+                conn.commit()
+                return edge_id
+            else:
+                conn.commit()
+                return ""  # 边已存在
+        finally:
+            conn.close()
+
+    def get_edge(self, edge_id: str) -> Optional[Dict[str, Any]]:
+        """根据 ID 获取边，返回字段字典或 None"""
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, from_id, to_id, relation_type, weight, source,
+                       status, created_at
+                FROM edges WHERE id = ?
+            """, (edge_id,))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            keys = ["id", "from_id", "to_id", "relation_type", "weight",
+                    "source", "status", "created_at"]
+            return dict(zip(keys, row))
+        finally:
+            conn.close()
+
+    # ── 查询 ──────────────────────────────────────────────
+
+    def traverse(self, node_id: str, depth: int = 2,
+                 max_results: int = 10, **kwargs) -> List[Dict[str, Any]]:
+        """从给定节点 BFS 遍历关联节点，返回关系列表
+
+        逻辑迁自 graph_query.traverse：
+        双向遍历（正向 + 反向边），访问激活（access_count++）。
+        """
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+
+            visited = set()
+            results = []
+            frontier = [node_id]
+            touched_ids = []
+
+            for _ in range(depth):
+                next_frontier = []
+                for nid in frontier:
+                    if nid in visited:
+                        continue
+                    visited.add(nid)
+
+                    # 正向边：from_id = nid
+                    cur.execute("""
+                        SELECT e.relation_type, e.weight, e.source,
+                               n.id, n.content, n.tier, n.principle
+                        FROM edges e
+                        JOIN nodes n ON e.to_id = n.id
+                        WHERE e.from_id = ? AND e.status = 'active'
+                    """, (nid,))
+                    for row in cur.fetchall():
+                        rel, weight, source, to_id, content, tier, principle = row
+                        results.append({
+                            "direction": "outgoing",
+                            "from": nid, "to": to_id,
+                            "relation": rel, "weight": weight,
+                            "source": source,
+                            "content": content, "tier": tier,
+                            "principle": principle
+                        })
+                        if to_id not in visited:
+                            next_frontier.append(to_id)
+                        touched_ids.append(to_id)
+
+                    # 反向边：to_id = nid
+                    cur.execute("""
+                        SELECT e.relation_type, e.weight, e.source,
+                               n.id, n.content, n.tier, n.principle
+                        FROM edges e
+                        JOIN nodes n ON e.from_id = n.id
+                        WHERE e.to_id = ? AND e.status = 'active'
+                    """, (nid,))
+                    for row in cur.fetchall():
+                        rel, weight, source, from_id, content, tier, principle = row
+                        results.append({
+                            "direction": "incoming",
+                            "from": from_id, "to": nid,
+                            "relation": rel, "weight": weight,
+                            "source": source,
+                            "content": content, "tier": tier,
+                            "principle": principle
+                        })
+                        if from_id not in visited:
+                            next_frontier.append(from_id)
+                        touched_ids.append(from_id)
+
+                frontier = next_frontier
+
+            # 访问激活
+            if touched_ids:
+                self._touch_nodes(touched_ids, conn)
+
+            conn.commit()
+            return results[:max_results]
+        finally:
+            conn.close()
+
+    def search_by_vector(self, query: str, top: int = 5,
+                         _touch: bool = True, **kwargs) -> List[Dict[str, Any]]:
+        q_vec = self._embedder.encode(query)
+
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, content, principle, vector, tier,
+                       decay_score, task_type, project
+                FROM nodes
+            """)
+            rows = cur.fetchall()
+
+            scored = []
+            for row in rows:
+                node_id, content, principle, vec_blob, tier, decay, task_type, project = row
+                if vec_blob is None:
+                    continue
+                vec = np.frombuffer(vec_blob, dtype=np.float32)
+                sim = float(np.dot(q_vec, vec))
+                scored.append((sim, node_id, content, principle, tier, decay, task_type, project))
+
+            scored.sort(key=lambda x: x[0], reverse=True)
+
+            if not scored:
+                return []
+
+            best_sim = scored[0][0]
+            cutoff = best_sim * 0.55
+
+            filtered = [s for s in scored if s[0] >= cutoff]
+
+            seed_ids = [s[1] for s in filtered[:5]]
+
+            chain_ids = set()
+            chain_edges = []
+            if seed_ids:
+                placeholders = ",".join(["?"] * len(seed_ids))
+                cur.execute(f"""
+                    SELECT e.from_id, e.to_id, e.relation_type, e.weight
+                    FROM edges e
+                    WHERE (e.from_id IN ({placeholders}) OR e.to_id IN ({placeholders}))
+                      AND e.status = 'active'
+                      AND e.relation_type IN ('similar_to', 'is_a', 'caused', 'solves', 'evolved_from')
+                """, seed_ids + seed_ids)
+                for eid_from, eid_to, rel, w in cur.fetchall():
+                    chain_edges.append((eid_from, eid_to, rel, w))
+                    if eid_from not in seed_ids:
+                        chain_ids.add(eid_from)
+                    if eid_to not in seed_ids:
+                        chain_ids.add(eid_to)
+
+            chain_scored = []
+            for nid in chain_ids:
+                cur.execute("SELECT content, principle, vector, tier, decay_score, task_type, project FROM nodes WHERE id=?", (nid,))
+                row = cur.fetchone()
+                if not row or row[2] is None:
+                    continue
+                vec = np.frombuffer(row[2], dtype=np.float32)
+                sim = float(np.dot(q_vec, vec))
+                if sim >= cutoff:
+                    chain_scored.append((sim, nid, row[0], row[1], row[3], row[4], row[5], row[6]))
+
+            seen = {s[1] for s in filtered}
+            for cs in chain_scored:
+                if cs[1] not in seen:
+                    filtered.append(cs)
+                    seen.add(cs[1])
+
+            filtered.sort(key=lambda x: x[0], reverse=True)
+
+            results = []
+            for sim, node_id, content, principle, tier, decay, task_type, project in filtered[:top]:
+                score = sim * max(0.1, decay)
+                results.append({
+                    "id": node_id, "content": content, "principle": principle,
+                    "tier": tier, "decay_score": round(decay, 3),
+                    "task_type": task_type, "project": project,
+                    "similarity": round(sim, 3), "score": round(score, 3)
+                })
+
+            if _touch and results:
+                self._touch_nodes([r["id"] for r in results], conn)
+
+            conn.commit()
+            return results
+        finally:
+            conn.close()
+
+    def search_by_keyword(self, query: str, top: int = 5,
+                          _touch: bool = True, **kwargs) -> List[Dict[str, Any]]:
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT n.id, n.content, n.principle, n.tier, n.decay_score,
+                       n.task_type, n.project
+                FROM fts_nodes
+                JOIN nodes n ON fts_nodes.id = n.id
+                WHERE fts_nodes MATCH ?
+                ORDER BY rank
+                LIMIT ?
+            """, (query, top))
+            rows = cur.fetchall()
+
+            results = [
+                {"id": r[0], "content": r[1], "principle": r[2],
+                 "tier": r[3], "decay_score": round(r[4], 3),
+                 "task_type": r[5], "project": r[6]}
+                for r in rows
+            ]
+
+            if _touch and results:
+                self._touch_nodes([r["id"] for r in results], conn)
+
+            conn.commit()
+            return results
+        finally:
+            conn.close()
+
+    def search_hybrid(self, query: str, top: int = 5,
+                      vector_weight: float = 0.7,
+                      keyword_weight: float = 0.3,
+                      **kwargs) -> List[Dict[str, Any]]:
+        vec_results = self.search_by_vector(query, top=top * 2, _touch=False)
+        kw_results = self.search_by_keyword(query, top=top * 2, _touch=False)
+
+        merged = {}
+        for r in vec_results:
+            nid = r['id']
+            merged[nid] = {
+                'id': nid, 'content': r['content'],
+                'principle': r.get('principle'),
+                'tier': r.get('tier'), 'decay_score': r.get('decay_score'),
+                'task_type': r.get('task_type'), 'project': r.get('project'),
+                'vector_score': r.get('score', 0),
+                'keyword_score': 0, 'in_vector': True, 'in_keyword': False
+            }
+        for r in kw_results:
+            nid = r['id']
+            if nid in merged:
+                merged[nid]['keyword_score'] = 1.0
+                merged[nid]['in_keyword'] = True
+            else:
+                merged[nid] = {
+                    'id': nid, 'content': r['content'],
+                    'principle': r.get('principle'),
+                    'tier': r.get('tier'), 'decay_score': r.get('decay_score'),
+                    'task_type': r.get('task_type'), 'project': r.get('project'),
+                    'vector_score': 0,
+                    'keyword_score': 1.0, 'in_vector': False, 'in_keyword': True
+                }
+
+        for item in merged.values():
+            item['score'] = round(
+                item['vector_score'] * vector_weight +
+                item['keyword_score'] * keyword_weight, 3
+            )
+
+        results = sorted(merged.values(), key=lambda x: x['score'], reverse=True)
+        top_results = results[:top]
+
+        # 只对最终结果 touch 一次
+        if top_results:
+            conn = self._connect()
+            try:
+                self._touch_nodes([r['id'] for r in top_results], conn)
+                conn.commit()
+            finally:
+                conn.close()
+
+        return top_results
+
+    # ── 批量操作（Dream Phase 使用）────────────────────────
+
+    def bulk_get_vectors(self) -> list:
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id, vector, content, task_type, principle FROM nodes WHERE vector IS NOT NULL")
+            keys = ["id", "vector", "content", "task_type", "principle"]
+            return [dict(zip(keys, row)) for row in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def bulk_get_nodes_by_task(self) -> dict:
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, type, task_type, created_at, metadata
+                FROM nodes WHERE task_type IS NOT NULL
+                ORDER BY task_type, created_at
+            """)
+            by_task: Dict[str, list] = {}
+            for nid, ntype, task, ts, meta_str in cur.fetchall():
+                result_val = None
+                if meta_str and meta_str != '{}':
+                    try:
+                        result_val = json.loads(meta_str).get("result")
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                by_task.setdefault(task, []).append({
+                    "id": nid, "type": ntype, "result": result_val, "ts": ts
+                })
+            return by_task
+        finally:
+            conn.close()
+
+    def bulk_add_edges(self, edges: list) -> int:
+        if not edges:
+            return 0
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            added = 0
+            for e in edges:
+                edge_id = str(uuid.uuid4())
+                cur.execute("""
+                    INSERT OR IGNORE INTO edges(id, from_id, to_id, relation_type,
+                                                weight, source, status, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 'active', ?)
+                """, (edge_id, e["from_id"], e["to_id"], e["relation_type"],
+                      e.get("weight", 0.5), e.get("source", "dream"), _now_iso()))
+                if cur.rowcount > 0:
+                    added += 1
+            conn.commit()
+            return added
+        finally:
+            conn.close()
+
+    def bulk_update_decay(self, updates: list) -> int:
+        if not updates:
+            return 0
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            for u in updates:
+                cur.execute("UPDATE nodes SET decay_score=?, tier=?, updated_at=? WHERE id=?",
+                            (u["decay_score"], u["tier"], _now_iso(), u["id"]))
+            conn.commit()
+            return len(updates)
+        finally:
+            conn.close()
+
+    def bulk_get_edge_pairs(self, relation_type: str) -> set:
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT from_id, to_id FROM edges WHERE relation_type=?",
+                        (relation_type,))
+            pairs = set()
+            for r in cur.fetchall():
+                pairs.add((r[0], r[1]))
+                pairs.add((r[1], r[0]))
+            return pairs
+        finally:
+            conn.close()
+
+    def get_top_hot_nodes(self, limit: int = 50) -> list:
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT content, principle, decay_score, type, task_type
+                FROM nodes WHERE tier = 'hot'
+                ORDER BY decay_score DESC LIMIT ?
+            """, (limit,))
+            keys = ["content", "principle", "decay_score", "type", "task_type"]
+            return [dict(zip(keys, row)) for row in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def query_edges(self, where_clause: str = "",
+                    params: tuple = ()) -> list:
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            sql = ("SELECT id, from_id, to_id, relation_type, weight, source, "
+                   "status, created_at FROM edges")
+            if where_clause:
+                sql += " WHERE " + where_clause
+            cur.execute(sql, params)
+            keys = ["id", "from_id", "to_id", "relation_type", "weight",
+                    "source", "status", "created_at"]
+            return [dict(zip(keys, row)) for row in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def query_nodes(self, where_clause: str = "",
+                    params: tuple = ()) -> list:
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            sql = ("SELECT id, type, content, principle, vector, tier, "
+                   "decay_score, base_score, access_count, last_access, "
+                   "created_at, updated_at, task_type, project, tags, metadata "
+                   "FROM nodes")
+            if where_clause:
+                sql += " WHERE " + where_clause
+            cur.execute(sql, params)
+            keys = ["id", "type", "content", "principle", "vector", "tier",
+                    "decay_score", "base_score", "access_count", "last_access",
+                    "created_at", "updated_at", "task_type", "project",
+                    "tags", "metadata"]
+            return [dict(zip(keys, row)) for row in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def add_raw_node(self, **fields) -> str:
+        node_id = fields.pop("id", str(uuid.uuid4()))
+        fields.setdefault("created_at", _now_iso())
+        fields.setdefault("updated_at", _now_iso())
+        fields.setdefault("tier", "hot")
+        fields.setdefault("decay_score", 0.8)
+        fields.setdefault("base_score", 0.8)
+        fields.setdefault("access_count", 0)
+        fields.setdefault("metadata", "{}")
+        cols = ", ".join(fields.keys())
+        cols = "id, " + cols
+        placeholders = ", ".join(["?"] * (len(fields) + 1))
+        vals = [node_id] + list(fields.values())
+        conn = self._connect()
+        try:
+            conn.execute(f"INSERT INTO nodes({cols}) VALUES({placeholders})", vals)
+            conn.commit()
+            return node_id
+        finally:
+            conn.close()
+
+    def veto_edges(self, edge_ids: list) -> int:
+        if not edge_ids:
+            return 0
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            for eid in edge_ids:
+                cur.execute("UPDATE edges SET status='vetoed' WHERE id=?", (eid,))
+            conn.commit()
+            return len(edge_ids)
+        finally:
+            conn.close()
+
+    def update_meta(self, key: str, value: str):
+        conn = self._connect()
+        try:
+            conn.execute("UPDATE meta SET value=? WHERE key=?", (value, key))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def count_edges_where(self, where_clause: str = "",
+                          params: tuple = ()) -> int:
+        conn = self._connect()
+        try:
+            sql = "SELECT COUNT(*) FROM edges"
+            if where_clause:
+                sql += " WHERE " + where_clause
+            return conn.execute(sql, params).fetchone()[0]
+        finally:
+            conn.close()
+
+    def count_nodes_where(self, where_clause: str = "",
+                          params: tuple = ()) -> int:
+        conn = self._connect()
+        try:
+            sql = "SELECT COUNT(*) FROM nodes"
+            if where_clause:
+                sql += " WHERE " + where_clause
+            return conn.execute(sql, params).fetchone()[0]
+        finally:
+            conn.close()
+
+    # ── 统计 ──────────────────────────────────────────────
+
+    def count_nodes(self) -> int:
+        """返回节点总数"""
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM nodes")
+            return cur.fetchone()[0]
+        finally:
+            conn.close()
+
+    def count_edges(self) -> int:
+        """返回边总数"""
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM edges")
+            return cur.fetchone()[0]
+        finally:
+            conn.close()
+
+    # ── 内部方��� ──────────────────────────────────────────
+
+    @staticmethod
+    def _write_edge_inner(cur, from_id: str, to_id: str, relation_type: str,
+                          weight: float = 0.5, source: str = "auto"):
+        """在已有 cursor 上写边（供事务内调用），INSERT OR IGNORE 防重复
+
+        迁自 graph_write._write_edge_inner。
+        """
+        edge_id = str(uuid.uuid4())
+        created = _now_iso()
+        cur.execute("""
+            INSERT OR IGNORE INTO edges(id, from_id, to_id, relation_type,
+                                        weight, source, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'active', ?)
+        """, (edge_id, from_id, to_id, relation_type, weight, source, created))
+
+    @staticmethod
+    def _touch_nodes(node_ids: list, conn: sqlite3.Connection):
+        """访问激活：批量更新 access_count 和 last_access
+
+        迁自 graph_query._touch_nodes。
+        """
+        if not node_ids:
+            return
+        now = _now_iso()
+        cur = conn.cursor()
+        for nid in node_ids:
+            cur.execute("""
+                UPDATE nodes SET access_count = access_count + 1,
+                                 last_access = ?,
+                                 updated_at = ?
+                WHERE id = ?
+            """, (now, now, nid))

@@ -1,0 +1,166 @@
+{
+  "module": "metacognitive",
+  "version": "3.0.0",
+  "timestamp": 1777533067.802353,
+  "saved_at": "2026-04-30T15:11:07.802352",
+  "data": {
+    "recent_outcomes": [
+      {
+        "success": false,
+        "timestamp": 1777532986.0905478,
+        "task_type": "api_proxy"
+      },
+      {
+        "success": false,
+        "timestamp": 1777532986.0946112,
+        "task_type": "api_proxy"
+      },
+      {
+        "success": true,
+        "timestamp": 1777532986.099812,
+        "task_type": "api_proxy"
+      },
+      {
+        "success": false,
+        "timestamp": 1777532986.1107473,
+        "task_type": "api_proxy"
+      },
+      {
+        "success": true,
+        "timestamp": 1777532986.1159883,
+        "task_type": "api_proxy"
+      },
+      {
+        "success": false,
+        "timestamp": 1777532986.1317778,
+        "task_type": "api_proxy"
+      },
+      {
+        "success": true,
+        "timestamp": 1777532986.1463125,
+        "task_type": "api_proxy"
+      },
+      {
+        "success": false,
+        "timestamp": 1777532986.1656923,
+        "task_type": "api_proxy"
+      },
+      {
+        "success": true,
+        "timestamp": 1777532986.1766624,
+        "task_type": "api_proxy"
+      },
+      {
+        "success": false,
+        "timestamp": 1777532986.1834955,
+        "task_type": "electron_dev"
+      },
+      {
+        "success": true,
+        "timestamp": 1777532986.1884797,
+        "task_type": "electron_dev"
+      },
+      {
+        "success": false,
+        "timestamp": 1777532986.1924694,
+        "task_type": "electron_dev"
+      },
+      {
+        "success": true,
+        "timestamp": 1777532986.197093,
+        "task_type": "electron_dev"
+      },
+      {
+        "success": false,
+        "timestamp": 1777532986.2020943,
+        "task_type": "electron_dev"
+      },
+      {
+        "success": true,
+        "timestamp": 1777532986.2226653,
+        "task_type": "electron_dev"
+      },
+      {
+        "success": false,
+        "timestamp": 1777532986.2386022,
+        "task_type": "electron_dev"
+      },
+      {
+        "success": true,
+        "timestamp": 1777532986.25132,
+        "task_type": "electron_dev"
+      },
+      {
+        "success": false,
+        "timestamp": 1777532986.2563179,
+        "task_type": "coding"
+      },
+      {
+        "success": true,
+        "timestamp": 1777532986.2613149,
+        "task_type": "coding"
+      },
+      {
+        "success": false,
+        "timestamp": 1777532986.2699852,
+        "task_type": "cli_tool"
+      },
+      {
+        "success": true,
+        "timestamp": 1777532986.2796705,
+        "task_type": "cli_tool"
+      },
+      {
+        "success": false,
+        "timestamp": 1777532986.2856543,
+        "task_type": "cli_tool"
+      },
+      {
+        "success": false,
+        "timestamp": 1777532986.2906408,
+        "task_type": "llm_integration"
+      },
+      {
+        "success": true,
+        "timestamp": 1777532986.2976573,
+        "task_type": "asr_integration"
+      },
+      {
+        "success": true,
+        "timestamp": 1777532986.3026543,
+        "task_type": "workflow"
+      },
+      {
+        "success": true,
+        "timestamp": 1777532986.3138516,
+        "task_type": "workflow"
+      },
+      {
+        "success": true,
+        "timestamp": 1777532986.318851,
+        "task_type": "visual_design"
+      },
+      {
+        "success": true,
+        "timestamp": 1777532986.3238482,
+        "task_type": "memory_system"
+      },
+      {
+        "success": true,
+        "timestamp": 1777532986.3334613,
+        "task_type": "memory_system"
+      }
+    ],
+    "exploration_rate": 0.1,
+    "health_score": 0.33599999999999997,
+    "last_health_score": 0.315,
+    "stagnation_count": 0,
+    "health_history": [
+      0.315,
+      0.33599999999999997
+    ],
+    "total_adjustments": 0,
+    "anomalies_handled": 5,
+    "total_observations": 29
+  }
+}

@@ -1,0 +1,521 @@
+{
+  "module": "sensor",
+  "version": "3.0.0",
+  "timestamp": 1777533067.7821574,
+  "saved_at": "2026-04-30T15:11:07.782157",
+  "data": {
+    "records": [
+      {
+        "id": "rec_0",
+        "task_type": "api_proxy",
+        "result": "failure",
+        "context": {
+          "task": "网关v2-v3开发",
+          "issue": "字符串替换不处理gzip",
+          "lesson": "WorkBuddy请求体是gzip压缩的，必须先解压"
+        },
+        "timestamp": 1777532986.0863178,
+        "created_at": "2026-04-30T15:09:46.086317"
+      },
+      {
+        "id": "rec_1",
+        "task_type": "api_proxy",
+        "result": "failure",
+        "context": {
+          "task": "网关v3开发",
+          "issue": "JSON.parse乱码",
+          "lesson": "gzip不解压直接JSON.parse会失败"
+        },
+        "timestamp": 1777532986.0925715,
+        "created_at": "2026-04-30T15:09:46.092571"
+      },
+      {
+        "id": "rec_2",
+        "task_type": "api_proxy",
+        "result": "success",
+        "context": {
+          "task": "网关v4.1",
+          "solution": "加zlib.createGunzip()解压",
+          "result": "GLM-5.1和Kimi-K2.6正常"
+        },
+        "timestamp": 1777532986.098304,
+        "created_at": "2026-04-30T15:09:46.098304"
+      },
+      {
+        "id": "rec_3",
+        "task_type": "api_proxy",
+        "result": "failure",
+        "context": {
+          "task": "网关v4.3",
+          "issue": "删除stream_options导致0token",
+          "lesson": "上游API兼容性会变化，之前不支持的字段可能后来支持了"
+        },
+        "timestamp": 1777532986.102769,
+        "created_at": "2026-04-30T15:09:46.102768"
+      },
+      {
+        "id": "rec_4",
+        "task_type": "api_proxy",
+        "result": "success",
+        "context": {
+          "task": "网关v4.4",
+          "solution": "恢复stream_options并自动注入include_usage",
+          "result": "token统计恢复正常"
+        },
+        "timestamp": 1777532986.1137407,
+        "created_at": "2026-04-30T15:09:46.113740"
+      },
+      {
+        "id": "rec_5",
+        "task_type": "api_proxy",
+        "result": "failure",
+        "context": {
+          "task": "网关v4.5",
+          "issue": "并发过高触发429限流",
+          "lesson": "上游限制最大并发约5"
+        },
+        "timestamp": 1777532986.1189754,
+        "created_at": "2026-04-30T15:09:46.118975"
+      },
+      {
+        "id": "rec_6",
+        "task_type": "api_proxy",
+        "result": "success",
+        "context": {
+          "task": "网关v4.5",
+          "solution": "ConcurrencyLimiter信号量控制MAX_CONCURRENT=5",
+          "result": "429限流不再出现"
+        },
+        "timestamp": 1777532986.1317778,
+        "created_at": "2026-04-30T15:09:46.131777"
+      },
+      {
+        "id": "rec_7",
+        "task_type": "api_proxy",
+        "result": "failure",
+        "context": {
+          "task": "网关v4.5",
+          "issue": "reasoning合并到content导致响应截断",
+          "lesson": "GLM-5.1推理过程几千token，合并后超长"
+        },
+        "timestamp": 1777532986.151311,
+        "created_at": "2026-04-30T15:09:46.151310"
+      },
+      {
+        "id": "rec_8",
+        "task_type": "api_proxy",
+        "result": "success",
+        "context": {
+          "task": "网关v4.6",
+          "solution": "reasoning直接丢弃不合并",
+          "result": "响应不再截断"
+        },
+        "timestamp": 1777532986.1686838,
+        "created_at": "2026-04-30T15:09:46.168683"
+      },
+      {
+        "id": "rec_9",
+        "task_type": "electron_dev",
+        "result": "failure",
+        "context": {
+          "task": "Electron配置持久化",
+          "issue": "PowerShell Set-Content写BOM破坏JSON.parse",
+          "lesson": "ConfigManager需去BOM，用Buffer写无BOM UTF-8"
+        },
+        "timestamp": 1777532986.1795034,
+        "created_at": "2026-04-30T15:09:46.179503"
+      },
+      {
+        "id": "rec_10",
+        "task_type": "electron_dev",
+        "result": "success",
+        "context": {
+          "task": "Electron配置修复",
+          "solution": "load()去BOM，save()用Buffer",
+          "result": "配置正常读写"
+        },
+        "timestamp": 1777532986.1864848,
+        "created_at": "2026-04-30T15:09:46.186484"
+      },
+      {
+        "id": "rec_11",
+        "task_type": "electron_dev",
+        "result": "failure",
+        "context": {
+          "task": "Electron服务启动",
+          "issue": "Promise.then里的return不传递到外层await",
+          "lesson": "waitForReady永远返回false导致30秒超时"
+        },
+        "timestamp": 1777532986.1904774,
+        "created_at": "2026-04-30T15:09:46.190477"
+      },
+      {
+        "id": "rec_12",
+        "task_type": "electron_dev",
+        "result": "success",
+        "context": {
+          "task": "Electron启动修复",
+          "solution": "改用const ready = await new Promise()",
+          "result": "启动正常"
+        },
+        "timestamp": 1777532986.1954613,
+        "created_at": "2026-04-30T15:09:46.195461"
+      },
+      {
+        "id": "rec_13",
+        "task_type": "electron_dev",
+        "result": "failure",
+        "context": {
+          "task": "Electron health check",
+          "issue": "Node.js http.request hostname='localhost'解析到IPv6 ::1",
+          "lesson": "Uvicorn绑定IPv4 0.0.0.0，必须用127.0.0.1"
+        },
+        "timestamp": 1777532986.2020943,
+        "created_at": "2026-04-30T15:09:46.202094"
+      },
+      {
+        "id": "rec_14",
+        "task_type": "electron_dev",
+        "result": "success",
+        "context": {
+          "task": "Electron health修复",
+          "solution": "所有hostname改为127.0.0.1",
+          "result": "health check正常"
+        },
+        "timestamp": 1777532986.2070887,
+        "created_at": "2026-04-30T15:09:46.207088"
+      },
+      {
+        "id": "rec_15",
+        "task_type": "electron_dev",
+        "result": "failure",
+        "context": {
+          "task": "Python嵌入包",
+          "issue": "._pth未取消import site注释",
+          "lesson": "必须添加Lib\\site-packages否则pip装不上"
+        },
+        "timestamp": 1777532986.2266545,
+        "created_at": "2026-04-30T15:09:46.226654"
+      },
+      {
+        "id": "rec_16",
+        "task_type": "electron_dev",
+        "result": "success",
+        "context": {
+          "task": "Python嵌入包修复",
+          "solution": "修改._pth配置",
+          "result": "pip正常安装依赖"
+        },
+        "timestamp": 1777532986.2415946,
+        "created_at": "2026-04-30T15:09:46.241594"
+      },
+      {
+        "id": "rec_17",
+        "task_type": "coding",
+        "result": "failure",
+        "context": {
+          "task": "森林大屏布局",
+          "issue": "placed.push()遗漏",
+          "lesson": "修改生成逻辑时确认入队/记录操作成对出现"
+        },
+        "timestamp": 1777532986.25132,
+        "created_at": "2026-04-30T15:09:46.251319"
+      },
+      {
+        "id": "rec_18",
+        "task_type": "coding",
+        "result": "success",
+        "context": {
+          "task": "森林大屏布局修复",
+          "solution": "恢复placed.push()",
+          "result": "重叠避让计算正常"
+        },
+        "timestamp": 1777532986.2563179,
+        "created_at": "2026-04-30T15:09:46.256317"
+      },
+      {
+        "id": "rec_19",
+        "task_type": "cli_tool",
+        "result": "failure",
+        "context": {
+          "task": "Claude Code桥接",
+          "issue": "execFileSync+shell:true+claude.cmd导致GBK编码",
+          "lesson": "cmd.exe将UTF-8转为GBK，中文prompt损坏"
+        },
+        "timestamp": 1777532986.265995,
+        "created_at": "2026-04-30T15:09:46.265995"
+      },
+      {
+        "id": "rec_20",
+        "task_type": "cli_tool",
+        "result": "success",
+        "context": {
+          "task": "Claude Code桥接修复",
+          "solution": "直接调claude.exe+shell:false",
+          "result": "中文prompt正常"
+        },
+        "timestamp": 1777532986.2769656,
+        "created_at": "2026-04-30T15:09:46.276965"
+      },
+      {
+        "id": "rec_21",
+        "task_type": "cli_tool",
+        "result": "failure",
+        "context": {
+          "task": "FFmpeg下载",
+          "issue": "setup-ffmpeg.js只处理301/302",
+          "lesson": "gyan.dev返回303 See Other，需处理全系列重定向"
+        },
+        "timestamp": 1777532986.2836597,
+        "created_at": "2026-04-30T15:09:46.283659"
+      },
+      {
+        "id": "rec_22",
+        "task_type": "llm_integration",
+        "result": "failure",
+        "context": {
+          "task": "DeepSeek解析",
+          "issue": "V3.2倾向用```json代码块包裹JSON",
+          "lesson": "解析器需处理代码块提取"
+        },
+        "timestamp": 1777532986.288647,
+        "created_at": "2026-04-30T15:09:46.288646"
+      },
+      {
+        "id": "rec_23",
+        "task_type": "asr_integration",
+        "result": "success",
+        "context": {
+          "task": "讯飞ASR",
+          "lesson": "upload接口不是multipart，参数放URL Query，音频放Body；status=4才是完成"
+        },
+        "timestamp": 1777532986.2946308,
+        "created_at": "2026-04-30T15:09:46.294630"
+      },
+      {
+        "id": "rec_24",
+        "task_type": "workflow",
+        "result": "success",
+        "context": {
+          "task": "Claude Code配置",
+          "lesson": "先试最简单的方案（改模型名GLM-5.1），别上来就搞映射/改网关"
+        },
+        "timestamp": 1777532986.3026543,
+        "created_at": "2026-04-30T15:09:46.302654"
+      },
+      {
+        "id": "rec_25",
+        "task_type": "workflow",
+        "result": "success",
+        "context": {
+          "task": "积分规则改动",
+          "lesson": "改核心数值前grep全项目引用，列清单逐项更新"
+        },
+        "timestamp": 1777532986.3119307,
+        "created_at": "2026-04-30T15:09:46.311930"
+      },
+      {
+        "id": "rec_26",
+        "task_type": "visual_design",
+        "result": "success",
+        "context": {
+          "task": "森林大屏视觉打磨",
+          "lesson": "陛下喜欢先看原型再敲定方案，视觉类先做可运行预览"
+        },
+        "timestamp": 1777532986.3138516,
+        "created_at": "2026-04-30T15:09:46.313851"
+      },
+      {
+        "id": "rec_27",
+        "task_type": "memory_system",
+        "result": "success",
+        "context": {
+          "task": "Self-Improving激活",
+          "lesson": "从被动等纠正变为自动提取经验，历史16天日志回填12+条模式"
+        },
+        "timestamp": 1777532986.318851,
+        "created_at": "2026-04-30T15:09:46.318851"
+      },
+      {
+        "id": "rec_28",
+        "task_type": "memory_system",
+        "result": "success",
+        "context": {
+          "task": "进化引擎+Self-Improving融合",
+          "lesson": "进化引擎负责自动学习生成策略，Self-Improving负责审核和写入长期记忆"
+        },
+        "timestamp": 1777532986.3314688,
+        "created_at": "2026-04-30T15:09:46.331468"
+      },
+      {
+        "timestamp": "2026-05-02T01:08:01.033554",
+        "task_type": "memory_system",
+        "result": "success",
+        "context": {
+          "lesson": "将 Memory Evolution 触发规则嵌入 SOUL.md，创建 quick_record.py 辅助脚本"
+        }
+      }
+    ],
+    "record_index": 29,
+    "failure_patterns": {
+      "a64dda66ec195895": {
+        "pattern": {
+          "task_type": "api_proxy"
+        },
+        "count": 5,
+        "first_seen": 1777532986.0885038,
+        "last_seen": 1777532986.151311,
+        "contexts": [
+          {
+            "context": {
+              "task": "网关v2-v3开发",
+              "issue": "字符串替换不处理gzip",
+              "lesson": "WorkBuddy请求体是gzip压缩的，必须先解压"
+            },
+            "timestamp": 1777532986.0885038
+          },
+          {
+            "context": {
+              "task": "网关v3开发",
+              "issue": "JSON.parse乱码",
+              "lesson": "gzip不解压直接JSON.parse会失败"
+            },
+            "timestamp": 1777532986.0925715
+          },
+          {
+            "context": {
+              "task": "网关v4.3",
+              "issue": "删除stream_options导致0token",
+              "lesson": "上游API兼容性会变化，之前不支持的字段可能后来支持了"
+            },
+            "timestamp": 1777532986.102769
+          },
+          {
+            "context": {
+              "task": "网关v4.5",
+              "issue": "并发过高触发429限流",
+              "lesson": "上游限制最大并发约5"
+            },
+            "timestamp": 1777532986.1189754
+          },
+          {
+            "context": {
+              "task": "网关v4.5",
+              "issue": "reasoning合并到content导致响应截断",
+              "lesson": "GLM-5.1推理过程几千token，合并后超长"
+            },
+            "timestamp": 1777532986.151311
+          }
+        ]
+      },
+      "ae6f2a19c2776b52": {
+        "pattern": {
+          "task_type": "electron_dev"
+        },
+        "count": 4,
+        "first_seen": 1777532986.1795034,
+        "last_seen": 1777532986.2266545,
+        "contexts": [
+          {
+            "context": {
+              "task": "Electron配置持久化",
+              "issue": "PowerShell Set-Content写BOM破坏JSON.parse",
+              "lesson": "ConfigManager需去BOM，用Buffer写无BOM UTF-8"
+            },
+            "timestamp": 1777532986.1795034
+          },
+          {
+            "context": {
+              "task": "Electron服务启动",
+              "issue": "Promise.then里的return不传递到外层await",
+              "lesson": "waitForReady永远返回false导致30秒超时"
+            },
+            "timestamp": 1777532986.1904774
+          },
+          {
+            "context": {
+              "task": "Electron health check",
+              "issue": "Node.js http.request hostname='localhost'解析到IPv6 ::1",
+              "lesson": "Uvicorn绑定IPv4 0.0.0.0，必须用127.0.0.1"
+            },
+            "timestamp": 1777532986.2020943
+          },
+          {
+            "context": {
+              "task": "Python嵌入包",
+              "issue": "._pth未取消import site注释",
+              "lesson": "必须添加Lib\\site-packages否则pip装不上"
+            },
+            "timestamp": 1777532986.2266545
+          }
+        ]
+      },
+      "e2b5480962d301e8": {
+        "pattern": {
+          "task_type": "coding"
+        },
+        "count": 1,
+        "first_seen": 1777532986.25132,
+        "last_seen": 1777532986.25132,
+        "contexts": [
+          {
+            "context": {
+              "task": "森林大屏布局",
+              "issue": "placed.push()遗漏",
+              "lesson": "修改生成逻辑时确认入队/记录操作成对出现"
+            },
+            "timestamp": 1777532986.25132
+          }
+        ]
+      },
+      "86bf157ce6716214": {
+        "pattern": {
+          "task_type": "cli_tool"
+        },
+        "count": 2,
+        "first_seen": 1777532986.265995,
+        "last_seen": 1777532986.2836597,
+        "contexts": [
+          {
+            "context": {
+              "task": "Claude Code桥接",
+              "issue": "execFileSync+shell:true+claude.cmd导致GBK编码",
+              "lesson": "cmd.exe将UTF-8转为GBK，中文prompt损坏"
+            },
+            "timestamp": 1777532986.265995
+          },
+          {
+            "context": {
+              "task": "FFmpeg下载",
+              "issue": "setup-ffmpeg.js只处理301/302",
+              "lesson": "gyan.dev返回303 See Other，需处理全系列重定向"
+            },
+            "timestamp": 1777532986.2836597
+          }
+        ]
+      },
+      "253b7626c09255e2": {
+        "pattern": {
+          "task_type": "llm_integration"
+        },
+        "count": 1,
+        "first_seen": 1777532986.288647,
+        "last_seen": 1777532986.288647,
+        "contexts": [
+          {
+            "context": {
+              "task": "DeepSeek解析",
+              "issue": "V3.2倾向用```json代码块包裹JSON",
+              "lesson": "解析器需处理代码块提取"
+            },
+            "timestamp": 1777532986.288647
+          }
+        ]
+      }
+    },
+    "threat_blacklist": [],
+    "capability_bounds": {},
+    "total_success": 16,
+    "total_failure": 13
+  }
+}
