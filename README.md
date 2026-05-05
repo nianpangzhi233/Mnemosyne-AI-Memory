@@ -266,3 +266,11 @@ Brain science foundations:
 Built with [Harrier](https://huggingface.co/microsoft/harrier-oss-v1-0.6b),
 [sentence-transformers](https://www.sbert.net/),
 [SQLite FTS5](https://www.sqlite.org/fts5.html).
+
+---
+
+<div align="center">
+
+**[What's New in v4.1.0 →](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/releases/tag/v4.1.0)**
+
+</div>
