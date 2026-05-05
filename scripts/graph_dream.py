@@ -71,8 +71,8 @@ def show_stats():
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="做梦全流程")
-    parser.add_argument("--full", action="store_true", help="完整做梦（Phase 1-8）")
-    parser.add_argument("--phase", type=int, help="只跑某个Phase (1-8)")
+    parser.add_argument("--full", action="store_true", help="完整做梦（全部Phase）")
+    parser.add_argument("--phase", type=int, help="只跑某个Phase")
     parser.add_argument("--stats", action="store_true", help="查看统计")
     args = parser.parse_args()
 
@@ -84,9 +84,6 @@ def main():
     embedder = HarrierEmbedder()
 
     if args.phase:
-        if args.phase < 1 or args.phase > 8:
-            print(f"无效 Phase: {args.phase}，可选 1-8")
-            return
         results = run_dream(store, embedder, phases=[args.phase])
         for r in results:
             print(f"  结果: {r['result']}")

@@ -128,7 +128,7 @@ def init_db(db_path: str = None):
 
     # meta 初始数据（INSERT OR IGNORE 保证重复运行安全）
     meta_defaults = [
-        ('version', '4.1.0'),
+        ('version', '5.0.0'),
         ('embedding_model', 'microsoft/harrier-oss-v1-0.6b'),
         ('embedding_dims', '1024'),
         ('last_dream', ''),

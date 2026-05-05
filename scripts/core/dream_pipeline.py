@@ -10,6 +10,8 @@ v4.1 将 graph_dream.py 的 8 个 Phase 重构为独立插件类：
 
 import json
 import math
+import re
+import sqlite3
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
@@ -53,6 +55,28 @@ class DreamPhase(ABC):
     def run(self, store: AbstractGraphStore, embedder: AbstractEmbedder) -> dict: ...
 
 
+_DREAM_LOG_DB = Path(__file__).resolve().parent.parent.parent / "dream_log.db"
+
+
+def _init_dream_log():
+    conn = sqlite3.connect(str(_DREAM_LOG_DB))
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS dreams (
+            id TEXT PRIMARY KEY,
+            started_at TEXT,
+            finished_at TEXT,
+            status TEXT,
+            nodes_before INTEGER,
+            edges_before INTEGER,
+            nodes_after INTEGER,
+            edges_after INTEGER,
+            phases TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
 class DreamPipeline:
     def __init__(self):
         self._phases: List[DreamPhase] = []
@@ -62,12 +86,40 @@ class DreamPipeline:
         return self
 
     def execute(self, store: AbstractGraphStore, embedder: AbstractEmbedder) -> List[Dict[str, Any]]:
+        import sqlite3 as _sq
+        _init_dream_log()
+        started = _now_iso()
+        nodes_before = store.count_nodes()
+        edges_before = store.count_edges()
+
         results = []
         for i, phase in enumerate(self._phases, 1):
             print(f"[Phase {i}] {phase.name}")
             result = phase.run(store, embedder)
             print(f"  结果: {result}")
             results.append({"phase": i, "name": phase.name, "result": result})
+
+        nodes_after = store.count_nodes()
+        edges_after = store.count_edges()
+        final_status = "PASS"
+        for r in results:
+            res = r.get("result", {})
+            if isinstance(res, dict) and res.get("status") == "WARN":
+                final_status = "WARN"
+                break
+
+        log_conn = _sq.connect(str(_DREAM_LOG_DB))
+        try:
+            log_conn.execute(
+                "INSERT INTO dreams(id, started_at, finished_at, status, nodes_before, edges_before, nodes_after, edges_after, phases) VALUES (?,?,?,?,?,?,?,?,?)",
+                (str(uuid.uuid4()), started, _now_iso(), final_status,
+                 nodes_before, edges_before, nodes_after, edges_after,
+                 json.dumps(results, ensure_ascii=False, default=str))
+            )
+            log_conn.commit()
+        finally:
+            log_conn.close()
+
         return results
 
 
@@ -430,9 +482,158 @@ class AuditPhase(DreamPhase):
                 "alerts": alerts, "status": "PASS" if not alerts else "WARN"}
 
 
+class LogScanPhase(DreamPhase):
+    @property
+    def name(self) -> str:
+        return "对话日志扫描"
+
+    def run(self, store: AbstractGraphStore, embedder: AbstractEmbedder) -> dict:
+        import sys
+        from pathlib import Path
+        scripts_dir = Path(__file__).resolve().parent.parent
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        from log_scanner.scanner import scan
+
+        fragments = scan()
+        written = 0
+        for frag in fragments:
+            content = frag["content"]
+            project = frag.get("session_title", "")[:30] or None
+            try:
+                store.add_node(content=content, node_type="raw",
+                               project=project, principle=None)
+                written += 1
+            except Exception:
+                pass
+
+        return {"scanned_sessions": len(fragments), "written": written}
+
+
+class DistillPhase(DreamPhase):
+    @property
+    def name(self) -> str:
+        return "L2 蒸馏（raw → experience）"
+
+    def run(self, store: AbstractGraphStore, embedder: AbstractEmbedder) -> dict:
+        import sys
+        import time
+        from pathlib import Path
+        scripts_dir = Path(__file__).resolve().parent.parent
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        from llm_judge import load_config, _call_llm, _extract_json
+
+        config = load_config()
+        if not config.get("enabled"):
+            return {"distilled": 0, "discarded": 0, "skipped": "LLM disabled"}
+
+        endpoint = config["endpoint"]
+        model = config["model"]
+        timeout = config.get("timeout", 120)
+
+        raw_nodes = store.query_nodes("type='raw'")
+        if not raw_nodes:
+            return {"distilled": 0, "discarded": 0, "skipped": "no raw nodes"}
+
+        distilled = 0
+        discarded = 0
+        errors = 0
+
+        system_prompt = (
+            "You are a memory distillation engine for an AI agent called Mnemosyne.\n"
+            "Your job: decide if a raw conversation fragment contains experience worth remembering long-term.\n\n"
+            "## What to KEEP\n"
+            "- Task completed with clear outcome (success or failure)\n"
+            "- Bug fixed with root cause and solution\n"
+            "- Decision made with reasoning (chose X over Y because...)\n"
+            "- User preference or style learned ('I prefer...')\n"
+            "- Pattern or principle discovered that generalizes\n"
+            "- Error that reveals a non-obvious trap\n\n"
+            "## What to DISCARD\n"
+            "- Pure chitchat, greetings, acknowledgments\n"
+            "- Incomplete task with no conclusion\n"
+            "- Tool invocation logs with no insight\n"
+            "- Configuration changes with no lesson learned\n"
+            "- Duplicate of existing knowledge\n\n"
+            "## Output Format\n"
+            "Respond with EXACTLY this JSON structure, nothing else:\n\n"
+            "If worth keeping:\n"
+            '{"keep": true, "principle": "concise one-line principle that generalizes the lesson", "summary": "1-2 sentence factual summary of what happened and what was learned"}\n\n'
+            "If not worth keeping:\n"
+            '{"keep": false}\n\n'
+            "## Examples\n\n"
+            "Fragment: [User] gzip请求体解析失败 [AI] 加了gunzip解压 [Tool:bash] tests passed\n"
+            '{"keep": true, "principle": "Check Content-Encoding before parsing request body", "summary": "Fixed gzip-compressed request body parsing by adding decompression step before JSON.parse"}\n\n'
+            "Fragment: [User] 你好 [AI] 你好！有什么可以帮你的？ [User] 谢谢\n"
+            '{"keep": false}\n\n'
+            "Fragment: [User] 我喜欢函数式风格不要class [AI] 收到 [Tool:edit] refactored\n"
+            '{"keep": true, "principle": "User prefers functional style over classes", "summary": "User stated preference for functional programming style, avoid class-based patterns"}\n\n'
+            "Now judge the following fragment:"
+        )
+
+        for node in raw_nodes:
+            content = node.get("content", "")
+            content = re.sub(r"<[^>]+>", "", content)
+            content = content.strip()
+            if not content or len(content) < 50:
+                conn = store._connect()
+                try:
+                    conn.execute("UPDATE nodes SET tier='cold' WHERE id=?", (node["id"],))
+                    conn.commit()
+                finally:
+                    conn.close()
+                discarded += 1
+                continue
+
+            user_prompt = f"Fragment:\n{content[:800]}"
+            result = _call_llm(endpoint, model, system_prompt, user_prompt, timeout)
+
+            if not result:
+                errors += 1
+                time.sleep(2)
+                continue
+
+            parsed = _extract_json(result)
+            if not parsed:
+                errors += 1
+                continue
+
+            if parsed.get("keep"):
+                principle = parsed.get("principle", "")
+                summary = parsed.get("summary", "")
+
+                abstract = (principle or content[:150])[:150]
+                overview = (summary or content[:600])[:600]
+
+                conn = store._connect()
+                try:
+                    conn.execute(
+                        "UPDATE nodes SET type='experience', principle=?, abstract=?, overview=? WHERE id=?",
+                        (principle, abstract, overview, node["id"]),
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+
+                distilled += 1
+            else:
+                conn = store._connect()
+                try:
+                    conn.execute("UPDATE nodes SET tier='cold' WHERE id=?", (node["id"],))
+                    conn.commit()
+                finally:
+                    conn.close()
+                discarded += 1
+
+            time.sleep(3)
+
+        return {"distilled": distilled, "discarded": discarded, "errors": errors, "total_raw": len(raw_nodes)}
+
+
 _ALL_PHASES = [
-    SnapshotPhase, SimilarToPhase, CausalPhase, ContradictsPhase, TransfersPhase,
-    StrategyPhase, CovenantPhase, DecayPhase, LLMReviewPhase, SyncPhase, AuditPhase,
+    SnapshotPhase, LogScanPhase, SimilarToPhase, CausalPhase, ContradictsPhase, TransfersPhase,
+    StrategyPhase, CovenantPhase, DecayPhase, LLMReviewPhase, DistillPhase, SyncPhase, AuditPhase,
 ]
 
 

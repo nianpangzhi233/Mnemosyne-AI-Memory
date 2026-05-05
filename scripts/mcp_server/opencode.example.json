@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "mnemosyne": {
+      "command": "python",
+      "args": ["C:\\Users\\年\\memory-evolution\\scripts\\mcp_server\\start_mcp.py"]
+    }
+  }
+}

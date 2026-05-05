@@ -42,6 +42,26 @@ class SQLiteStore(AbstractGraphStore):
         self._db_path = db_path or str(_DEFAULT_DB_PATH)
         self._embedder = embedder or BgeM3Embedder()
 
+    _MAX_ABSTRACT = 150
+    _MAX_OVERVIEW = 600
+
+    @staticmethod
+    def _make_abstract(content: str, principle: str = None) -> str:
+        parts = [content[:150]]
+        if principle and len(parts[0]) + len(principle) + 3 <= 150:
+            parts.append(principle)
+        return " | ".join(parts)[:150]
+
+    @staticmethod
+    def _make_overview(content: str, principle: str = None,
+                       tags_json: str = None) -> str:
+        parts = [content[:600]]
+        if principle:
+            parts.append(f"principle: {principle}")
+        if tags_json and tags_json not in ("[]", "null"):
+            parts.append(f"tags: {tags_json}")
+        return "\n".join(parts)[:600]
+
     # ── 连接管理 ──────────────────────────────────────────
 
     def _connect(self) -> sqlite3.Connection:
@@ -126,7 +146,6 @@ class SQLiteStore(AbstractGraphStore):
                 vector = self._embedder.encode(content)
                 vector_blob = vector.astype(np.float32).tobytes()
 
-            # 新建节点
             if 'vector_blob' not in dir():
                 vector = self._embedder.encode(content)
                 vector_blob = vector.astype(np.float32).tobytes()
@@ -134,13 +153,17 @@ class SQLiteStore(AbstractGraphStore):
             node_id = str(uuid.uuid4())
             created = _now_iso()
             tags_json = json.dumps(tags or [], ensure_ascii=False)
+            abstract = self._make_abstract(content, principle)
+            overview = self._make_overview(content, principle, tags_json)
             cur.execute("""
                 INSERT INTO nodes(id, type, content, principle, vector, tier,
                                   decay_score, base_score, access_count, last_access,
-                                  created_at, updated_at, task_type, project, tags, metadata)
-                VALUES (?, ?, ?, ?, ?, 'hot', 0.8, 0.8, 1, ?, ?, ?, ?, ?, ?, '{}')
+                                  created_at, updated_at, task_type, project, tags, metadata,
+                                  abstract, overview)
+                VALUES (?, ?, ?, ?, ?, 'hot', 0.8, 0.8, 1, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
             """, (node_id, node_type, content, principle, vector_blob,
-                  created, created, created, task_type, project, tags_json))
+                  created, created, created, task_type, project, tags_json,
+                  abstract, overview))
 
             if principle:
                 cur.execute("""
@@ -324,7 +347,8 @@ class SQLiteStore(AbstractGraphStore):
             conn.close()
 
     def search_by_vector(self, query: str, top: int = 5,
-                         _touch: bool = True, **kwargs) -> List[Dict[str, Any]]:
+                         _touch: bool = True, layer: str = "L2",
+                         **kwargs) -> List[Dict[str, Any]]:
         q_vec = self._embedder.encode(query)
 
         conn = self._connect()
@@ -332,19 +356,20 @@ class SQLiteStore(AbstractGraphStore):
             cur = conn.cursor()
             cur.execute("""
                 SELECT id, content, principle, vector, tier,
-                       decay_score, task_type, project
+                       decay_score, task_type, project, abstract, overview
                 FROM nodes
             """)
             rows = cur.fetchall()
 
             scored = []
             for row in rows:
-                node_id, content, principle, vec_blob, tier, decay, task_type, project = row
+                node_id, content, principle, vec_blob, tier, decay, task_type, project, abstract, overview = row
                 if vec_blob is None:
                     continue
                 vec = np.frombuffer(vec_blob, dtype=np.float32)
                 sim = float(np.dot(q_vec, vec))
-                scored.append((sim, node_id, content, principle, tier, decay, task_type, project))
+                scored.append((sim, node_id, content, principle, tier, decay,
+                                task_type, project, abstract, overview))
 
             scored.sort(key=lambda x: x[0], reverse=True)
 
@@ -378,14 +403,14 @@ class SQLiteStore(AbstractGraphStore):
 
             chain_scored = []
             for nid in chain_ids:
-                cur.execute("SELECT content, principle, vector, tier, decay_score, task_type, project FROM nodes WHERE id=?", (nid,))
+                cur.execute("SELECT content, principle, vector, tier, decay_score, task_type, project, abstract, overview FROM nodes WHERE id=?", (nid,))
                 row = cur.fetchone()
                 if not row or row[2] is None:
                     continue
                 vec = np.frombuffer(row[2], dtype=np.float32)
                 sim = float(np.dot(q_vec, vec))
                 if sim >= cutoff:
-                    chain_scored.append((sim, nid, row[0], row[1], row[3], row[4], row[5], row[6]))
+                    chain_scored.append((sim, nid, row[0], row[1], row[3], row[4], row[5], row[6], row[7], row[8]))
 
             seen = {s[1] for s in filtered}
             for cs in chain_scored:
@@ -396,14 +421,22 @@ class SQLiteStore(AbstractGraphStore):
             filtered.sort(key=lambda x: x[0], reverse=True)
 
             results = []
-            for sim, node_id, content, principle, tier, decay, task_type, project in filtered[:top]:
+            for sim, node_id, content, principle, tier, decay, task_type, project, abstract, overview in filtered[:top]:
                 score = sim * max(0.1, decay)
-                results.append({
-                    "id": node_id, "content": content, "principle": principle,
-                    "tier": tier, "decay_score": round(decay, 3),
-                    "task_type": task_type, "project": project,
-                    "similarity": round(sim, 3), "score": round(score, 3)
-                })
+                base = {"id": node_id, "similarity": round(sim, 3), "score": round(score, 3), "tier": tier}
+                if layer == "L0":
+                    base["abstract"] = abstract or content[:150]
+                elif layer == "L1":
+                    base["abstract"] = abstract or content[:150]
+                    base["overview"] = overview or content[:600]
+                    base["principle"] = principle
+                else:
+                    base["content"] = content
+                    base["principle"] = principle
+                    base["decay_score"] = round(decay, 3)
+                    base["task_type"] = task_type
+                    base["project"] = project
+                results.append(base)
 
             if _touch and results:
                 self._touch_nodes([r["id"] for r in results], conn)
@@ -414,13 +447,14 @@ class SQLiteStore(AbstractGraphStore):
             conn.close()
 
     def search_by_keyword(self, query: str, top: int = 5,
-                          _touch: bool = True, **kwargs) -> List[Dict[str, Any]]:
+                          _touch: bool = True, layer: str = "L2",
+                          **kwargs) -> List[Dict[str, Any]]:
         conn = self._connect()
         try:
             cur = conn.cursor()
             cur.execute("""
                 SELECT n.id, n.content, n.principle, n.tier, n.decay_score,
-                       n.task_type, n.project
+                       n.task_type, n.project, n.abstract, n.overview
                 FROM fts_nodes
                 JOIN nodes n ON fts_nodes.id = n.id
                 WHERE fts_nodes MATCH ?
@@ -429,12 +463,21 @@ class SQLiteStore(AbstractGraphStore):
             """, (query, top))
             rows = cur.fetchall()
 
-            results = [
-                {"id": r[0], "content": r[1], "principle": r[2],
-                 "tier": r[3], "decay_score": round(r[4], 3),
-                 "task_type": r[5], "project": r[6]}
-                for r in rows
-            ]
+            results = []
+            for r in rows:
+                base = {"id": r[0], "tier": r[3], "decay_score": round(r[4], 3)}
+                if layer == "L0":
+                    base["abstract"] = r[7] or r[1][:150]
+                elif layer == "L1":
+                    base["abstract"] = r[7] or r[1][:150]
+                    base["overview"] = r[8] or r[1][:600]
+                    base["principle"] = r[2]
+                else:
+                    base["content"] = r[1]
+                    base["principle"] = r[2]
+                    base["task_type"] = r[5]
+                    base["project"] = r[6]
+                results.append(base)
 
             if _touch and results:
                 self._touch_nodes([r["id"] for r in results], conn)
@@ -447,35 +490,30 @@ class SQLiteStore(AbstractGraphStore):
     def search_hybrid(self, query: str, top: int = 5,
                       vector_weight: float = 0.7,
                       keyword_weight: float = 0.3,
+                      layer: str = "L2",
                       **kwargs) -> List[Dict[str, Any]]:
-        vec_results = self.search_by_vector(query, top=top * 2, _touch=False)
-        kw_results = self.search_by_keyword(query, top=top * 2, _touch=False)
+        vec_results = self.search_by_vector(query, top=top * 2, _touch=False, layer=layer)
+        kw_results = self.search_by_keyword(query, top=top * 2, _touch=False, layer=layer)
 
         merged = {}
         for r in vec_results:
             nid = r['id']
-            merged[nid] = {
-                'id': nid, 'content': r['content'],
-                'principle': r.get('principle'),
-                'tier': r.get('tier'), 'decay_score': r.get('decay_score'),
-                'task_type': r.get('task_type'), 'project': r.get('project'),
-                'vector_score': r.get('score', 0),
-                'keyword_score': 0, 'in_vector': True, 'in_keyword': False
-            }
+            merged[nid] = dict(r)
+            merged[nid]['vector_score'] = r.get('score', 0)
+            merged[nid]['keyword_score'] = 0
+            merged[nid]['in_vector'] = True
+            merged[nid]['in_keyword'] = False
         for r in kw_results:
             nid = r['id']
             if nid in merged:
                 merged[nid]['keyword_score'] = 1.0
                 merged[nid]['in_keyword'] = True
             else:
-                merged[nid] = {
-                    'id': nid, 'content': r['content'],
-                    'principle': r.get('principle'),
-                    'tier': r.get('tier'), 'decay_score': r.get('decay_score'),
-                    'task_type': r.get('task_type'), 'project': r.get('project'),
-                    'vector_score': 0,
-                    'keyword_score': 1.0, 'in_vector': False, 'in_keyword': True
-                }
+                merged[nid] = dict(r)
+                merged[nid]['vector_score'] = 0
+                merged[nid]['keyword_score'] = 1.0
+                merged[nid]['in_vector'] = False
+                merged[nid]['in_keyword'] = True
 
         for item in merged.values():
             item['score'] = round(

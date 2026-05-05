@@ -1,6 +1,7 @@
 # Database & runtime
 graph.db
 graph.db.bak-*
+dream_log.db
 *.db-journal
 *.db-wal
 

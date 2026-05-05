@@ -36,7 +36,7 @@ def load_config() -> dict:
 
 def _call_llm(endpoint: str, model: str, system: str, user: str,
               timeout: int = 120) -> Optional[str]:
-    payload = json.dumps({
+    payload_dict = {
         "model": model,
         "messages": [
             {"role": "system", "content": system},
@@ -44,22 +44,41 @@ def _call_llm(endpoint: str, model: str, system: str, user: str,
         ],
         "temperature": 0.1,
         "max_tokens": 2048,
-    }).encode("utf-8")
+        "thinking": {"type": "disabled"},
+    }
+
+    config = load_config()
+    api_key = config.get("api_key")
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    payload = json.dumps(payload_dict).encode("utf-8")
 
     req = urllib.request.Request(
-        endpoint, data=payload,
-        headers={"Content-Type": "application/json"},
+        endpoint, data=payload, headers=headers,
     )
 
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-            msg = body["choices"][0]["message"]
-            content = msg.get("content") or msg.get("reasoning") or ""
-            return content.strip() if content else None
-    except Exception as e:
-        print(f"  [llm_judge] LLM 调用失败: {e}", file=sys.stderr)
-        return None
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+                msg = body["choices"][0]["message"]
+                content = msg.get("content") or msg.get("reasoning") or ""
+                return content.strip() if content else None
+        except urllib.error.HTTPError as e:
+            if e.code in (400, 429, 503) and attempt < max_retries - 1:
+                wait = (attempt + 1) * 3
+                print(f"  [llm_judge] {e.code}, 重试 {attempt+1}/{max_retries} ({wait}s)...", file=sys.stderr)
+                import time
+                time.sleep(wait)
+                continue
+            print(f"  [llm_judge] LLM 调用失败: {e}", file=sys.stderr)
+            return None
+        except Exception as e:
+            print(f"  [llm_judge] LLM 调用失败: {e}", file=sys.stderr)
+            return None
 
 
 def _extract_json(text: str):
@@ -148,14 +167,12 @@ def quick_review_edges(edges: list, store, config: dict) -> list:
             "to": to_c, "to_principle": to_p[:40],
         })
 
-    prompt = f"""你是记忆图谱审核员，模拟大脑REM睡眠的审查功能。
-
-对以下{len(summaries)}条边快速判断。每条只需返回 confidence(high/medium/low) 和 action(keep/veto)。
+    prompt = f"""对以下{len(summaries)}条边快速判断。每条只需返回 confidence(high/medium/low) 和 action(keep/veto)。
 
 判断标准：
-- high: 明确有意义（同一教训的不同阶段、真正的因果关系）
-- medium: 可能有关但不确定（表面相关但领域不同）
-- low: 明显无意义或误判
+- high: 明确有意义（同一教训的不同阶段、真正的因果关系、同类经验聚合）
+- medium: 可能有关但不确定（表面相关但领域不同、语义重叠但角度不同）
+- low: 明显无意义或误判（矛盾判断有误、跨域牵强关联）
 - veto: 删除这条边
 
 边列表:
@@ -163,7 +180,14 @@ def quick_review_edges(edges: list, store, config: dict) -> list:
 
 只返回 JSON 数组: [{{"idx":0, "confidence":"high", "action":"keep", "reason":"一句话"}}]"""
 
-    system = "你是图谱审核员，快速判断。只返回JSON数组。"
+    system = (
+        "你是 Mnemosyne 记忆图谱审核员，模拟大脑 REM 睡眠的审查功能。\n"
+        "你的任务：快速评估自动生成的知识图谱边是否有意义。\n\n"
+        "边代表经验之间的关系（因果、相似、矛盾、迁移等）。\n"
+        "有意义的边帮助 AI 在未来检索时发现深层关联。\n"
+        "无意义的边是噪声，浪费 token。\n\n"
+        "只返回 JSON 数组，不要其他文字。"
+    )
 
     result = _call_llm(config["endpoint"], config["model"], system, prompt,
                        timeout=config.get("timeout", 120))
@@ -206,7 +230,7 @@ def deep_review_items(items: list, store, config: dict) -> list:
         item["neighbors"] = neighbor_summary
         enriched.append(item)
 
-    prompt = f"""你是记忆图谱深度审核员。对以下{len(enriched)}条拿不准的项做深度判断。
+    prompt = f"""对以下{len(enriched)}条拿不准的项做深度判断。
 
 每项有完整内容和图谱上下文。判断:
 - action: keep(保留) / merge(合并到target_id) / delete(删除垃圾) / veto_edge(删除边)
@@ -217,7 +241,13 @@ def deep_review_items(items: list, store, config: dict) -> list:
 
 只返回 JSON 数组: [{{"target_id":"xxx", "action":"keep", "confidence":"high", "reason":"...", "merge_target":"yyy"}}]"""
 
-    system = "你是深度审核员，认真分析每项的语义本质。只返回JSON数组。"
+    system = (
+        "你是 Mnemosyne 记忆图谱深度审核员。\n"
+        "你的任务：对第一轮快判中置信度不高的条目做细致分析。\n\n"
+        "每项都包含完整内容和图谱邻居信息，你需要理解语义本质后再判断。\n"
+        "关键：区分「真正无关」和「看似无关实则深层关联」。\n\n"
+        "只返回 JSON 数组，不要其他文字。"
+    )
 
     result = _call_llm(config["endpoint"], config["model"], system, prompt,
                        timeout=config.get("timeout", 120))

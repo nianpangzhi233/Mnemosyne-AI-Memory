@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mnemosyne 核心模块 — v4.1 抽象层
+"""Mnemosyne 核心模块 — v5.0 抽象层
 
 导出三个核心接口及其默认实现：
 - GraphStore: 图存储（节点/边/检索）
@@ -14,7 +14,7 @@ from .task_runner import AbstractTaskRunner, APSchedulerRunner, CeleryRunner
 from .dream_pipeline import (
     DreamPhase, DreamPipeline, run_dream,
     SnapshotPhase, AuditPhase, LLMReviewPhase,
-    SimilarToPhase, CausalPhase, ContradictsPhase, TransfersPhase,
+    LogScanPhase, DistillPhase, SimilarToPhase, CausalPhase, ContradictsPhase, TransfersPhase,
     StrategyPhase, CovenantPhase, DecayPhase, SyncPhase,
 )
 
@@ -34,6 +34,8 @@ __all__ = [
     "SnapshotPhase",
     "AuditPhase",
     "LLMReviewPhase",
+    "LogScanPhase",
+    "DistillPhase",
     "SimilarToPhase",
     "CausalPhase",
     "ContradictsPhase",

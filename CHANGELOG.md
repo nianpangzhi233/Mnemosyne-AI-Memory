@@ -2,6 +2,31 @@
 
 All notable changes to Mnemosyne will be documented in this file.
 
+## [5.0.0] - 2026-05-05
+
+### Added
+- **L0/L1/L2 layered context** — 3-layer memory: abstract (~100 tok), overview (~500 tok), full content
+- **MCP Server** — zero-dependency JSON-RPC over stdio, 4 tools (memory_write/search/inject/detail)
+- **REST API** — FastAPI with 6 endpoints + Swagger UI (`/docs`)
+- **Streamlit Dashboard** — 4-page visual panel (Dashboard, Search, Graph, Dream Log)
+- **Conversation Log Scanner** — auto-scan opencode.db, filter noise, extract valuable fragments
+- **LLM Distillation (DistillPhase)** — raw conversation fragments → LLM extracts principle + summary
+- **Dream Log recording** — full dream history stored in `dream_log.db`
+- **Dream Log visualization** — 13-phase Gantt bars with expand/collapse details
+- **Custom D3.js force-directed graph** — zoom, pan, drag, type-colored nodes, edge legend
+- **Kimi-style UI** — dark sidebar, rounded cards, `#0071e3` blue accent
+- **Bilingual UI** — Chinese/English toggle on all dashboard pages
+- **AGENTS.md MCP hooks** — auto-trigger rules for memory_write/search/inject in AI sessions
+- Dream pipeline expanded from 11 → 13 phases (added LogScan + Distill)
+
+### Changed
+- Version bumped from v4.1 to **v5.0** — represents fundamental architecture shift
+- System description changed from "memory system" to **"experience & memory system"**
+- Scanner uses `text_factory = bytes` for correct UTF-8 on Windows
+- MCP Server stdout uses `sys.stdout.reconfigure(encoding='utf-8')` to fix surrogate errors
+- Dream pipeline records to `dream_log.db` for historical visualization
+- `meta.json` version → 5.0.0
+
 ## [4.1.0] - 2026-05-05
 
 ### Added

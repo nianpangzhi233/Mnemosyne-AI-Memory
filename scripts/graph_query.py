@@ -33,16 +33,16 @@ def _get_store() -> SQLiteStore:
     return _store
 
 
-def vector_search(query: str, top: int = 5, touch: bool = True):
-    return _get_store().search_by_vector(query, top=top)
+def vector_search(query: str, top: int = 5, layer: str = "L2"):
+    return _get_store().search_by_vector(query, top=top, layer=layer)
 
 
-def keyword_search(query: str, top: int = 5, touch: bool = True):
-    return _get_store().search_by_keyword(query, top=top)
+def keyword_search(query: str, top: int = 5, layer: str = "L2"):
+    return _get_store().search_by_keyword(query, top=top, layer=layer)
 
 
-def hybrid_search(query: str, top: int = 5):
-    return _get_store().search_hybrid(query, top=top)
+def hybrid_search(query: str, top: int = 5, layer: str = "L2"):
+    return _get_store().search_hybrid(query, top=top, layer=layer)
 
 
 def traverse(node_id: str, depth: int = 2, max_results: int = 10,
@@ -98,28 +98,64 @@ def main():
     parser.add_argument("--depth", type=int, default=2)
     parser.add_argument("--max-results", dest="max_results", type=int, default=10)
     parser.add_argument("--max-chars", dest="max_chars", type=int, default=500)
+    parser.add_argument("--layer", choices=["L0", "L1", "L2"], default="L2",
+                        help="Return granularity: L0=abstract, L1=overview, L2=full")
+    parser.add_argument("--detail", help="Comma-separated node IDs to fetch full details")
     args = parser.parse_args()
 
-    if args.vector_search:
-        results = vector_search(args.vector_search, args.top)
+    if args.detail:
+        ids = [x.strip() for x in args.detail.split(",") if x.strip()]
+        store = _get_store()
+        for nid in ids:
+            node = store.get_node(nid)
+            if node:
+                print(f"  [{node.get('tier')}] {node.get('content', '')[:80]}")
+                if node.get("principle"):
+                    print(f"    principle: {node['principle']}")
+                print(f"    decay: {node.get('decay_score', 0):.3f} | project: {node.get('project')}")
+            else:
+                print(f"  {nid}: not found")
+    elif args.vector_search:
+        results = vector_search(args.vector_search, args.top, args.layer)
         if not results:
             print("  无匹配结果")
         for r in results:
-            print(f"  [{r['similarity']:.3f}/{r['score']:.3f}] [{r['tier']}] {r['content'][:60]}")
+            if args.layer == "L0":
+                print(f"  [{r['similarity']:.3f}] [{r['tier']}] {r.get('abstract', '')[:80]}")
+            elif args.layer == "L1":
+                print(f"  [{r['similarity']:.3f}] [{r['tier']}] {r.get('abstract', '')[:80]}")
+                if r.get("principle"):
+                    print(f"    principle: {r['principle']}")
+            else:
+                print(f"  [{r['similarity']:.3f}/{r['score']:.3f}] [{r['tier']}] {r['content'][:60]}")
 
     elif args.keyword_search:
-        results = keyword_search(args.keyword_search, args.top)
+        results = keyword_search(args.keyword_search, args.top, args.layer)
         if not results:
             print("  无匹配结果")
         for r in results:
-            print(f"  [{r['tier']}] {r['content'][:60]}")
+            if args.layer == "L0":
+                print(f"  [{r['tier']}] {r.get('abstract', '')[:80]}")
+            elif args.layer == "L1":
+                print(f"  [{r['tier']}] {r.get('abstract', '')[:80]}")
+                if r.get("principle"):
+                    print(f"    principle: {r['principle']}")
+            else:
+                print(f"  [{r['tier']}] {r['content'][:60]}")
 
     elif args.hybrid_search:
-        results = hybrid_search(args.hybrid_search, args.top)
+        results = hybrid_search(args.hybrid_search, args.top, args.layer)
         if not results:
             print("  无匹配结果")
         for r in results:
-            print(f"  [{r.get('score',0):.3f}] [{r['tier']}] {r['content'][:60]}")
+            if args.layer == "L0":
+                print(f"  [{r.get('score',0):.3f}] [{r['tier']}] {r.get('abstract', '')[:80]}")
+            elif args.layer == "L1":
+                print(f"  [{r.get('score',0):.3f}] [{r['tier']}] {r.get('abstract', '')[:80]}")
+                if r.get("principle"):
+                    print(f"    principle: {r['principle']}")
+            else:
+                print(f"  [{r.get('score',0):.3f}] [{r['tier']}] {r['content'][:60]}")
 
     elif args.traverse:
         results = traverse(args.traverse, args.depth, args.max_results)
