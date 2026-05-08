@@ -123,7 +123,7 @@ def verify():
     # 检查核心模块
     sys.path.insert(0, str(SCRIPTS_DIR))
     try:
-        from core import SQLiteStore, BgeM3Embedder, AbstractGraphStore, AbstractEmbedder
+        from core import SQLiteStore, HarrierEmbedder, AbstractGraphStore, AbstractEmbedder
         print("  ✅ core 模块导入正常")
     except ImportError as e:
         errors.append(f"core 模块导入失败: {e}")
@@ -131,7 +131,7 @@ def verify():
 
     # 检查脚本
     for script in ['graph_init.py', 'graph_write.py', 'graph_query.py',
-                   'graph_dream.py', 'covenant.py']:
+                   'graph_dream.py', 'graph_audit.py']:
         if (SCRIPTS_DIR / script).exists():
             print(f"  ✅ {script} 存在")
         else:
@@ -152,7 +152,7 @@ def verify():
 def main():
     print("""
 ╔══════════════════════════════════════════════════╗
-║        Mnemosyne v5.0 安装向导                   ║
+║        Mnemosyne v6.1 安装向导                   ║
 ║        仿生经验与记忆系统 · Harrier + 知识图谱 + SQLite   ║
 ╚══════════════════════════════════════════════════╝
 """)

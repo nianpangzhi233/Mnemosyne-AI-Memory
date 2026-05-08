@@ -2,7 +2,7 @@
 """Mnemosyne MCP Server — stdio transport
 
 零依赖实现 MCP 协议（JSON-RPC over stdin/stdout）。
-提供 4 个工具：memory_write, memory_search, memory_inject, memory_detail
+提供 6 个工具：memory_write, memory_search, memory_inject, memory_detail, memory_update, memory_delete
 """
 
 import json
@@ -78,6 +78,19 @@ def _tools_list():
                         "items": {"type": "string"},
                         "description": "Tags for categorization (optional)"
                     },
+                    "precondition": {
+                        "type": "string",
+                        "description": "Environmental condition (optional)"
+                    },
+                    "predicted_outcome": {
+                        "type": "string",
+                        "description": "Predicted result (optional)"
+                    },
+                    "context_tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Tags for filtered search (optional)"
+                    },
                     "contradicts": {
                         "type": "string",
                         "description": "Node ID being corrected (optional, for corrections)"
@@ -103,9 +116,18 @@ def _tools_list():
                     },
                     "mode": {
                         "type": "string",
-                        "enum": ["vector", "keyword", "hybrid"],
+                        "enum": ["precise", "creative", "vector", "keyword", "hybrid"],
                         "default": "hybrid",
                         "description": "Search mode"
+                    },
+                    "graph_dim": {
+                        "type": "string",
+                        "description": "Filter by graph dimension: semantic/temporal/causal/entity"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter by context tags"
                     }
                 },
                 "required": ["query"]
@@ -145,6 +167,32 @@ def _tools_list():
                 },
                 "required": ["ids"]
             }
+        },
+        {
+            "name": "memory_update",
+            "description": "Update an existing memory node's fields",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Node ID to update"},
+                    "content": {"type": "string", "description": "New content (optional)"},
+                    "confidence": {"type": "number", "description": "New confidence 0-1.5 (optional)"},
+                    "context_tags": {"type": "array", "items": {"type": "string"}, "description": "New tags (optional)"},
+                    "principle": {"type": "string", "description": "New principle (optional)"}
+                },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "memory_delete",
+            "description": "Delete a memory node and all its edges",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Node ID to delete"}
+                },
+                "required": ["id"]
+            }
         }
     ]
 
@@ -156,10 +204,15 @@ def _handle_write(args):
     principle = args.get("principle")
     project = args.get("project")
     tags = args.get("tags", [])
+    precondition = args.get("precondition")
+    predicted_outcome = args.get("predicted_outcome")
+    context_tags = args.get("context_tags")
 
     node_id = store.add_node(
         content=content, node_type=node_type,
-        principle=principle, project=project, tags=tags
+        principle=principle, project=project, tags=tags,
+        precondition=precondition, predicted_outcome=predicted_outcome,
+        context_tags=context_tags,
     )
 
     contradicts_id = args.get("contradicts")
@@ -176,8 +229,12 @@ def _handle_search(args):
     top = args.get("top", 5)
     layer = args.get("layer", "L0")
     mode = args.get("mode", "hybrid")
+    graph_dim = args.get("graph_dim")
+    tags = args.get("tags")
 
-    if mode == "vector":
+    if mode in ("precise", "creative"):
+        results = store.search_spreading(query, mode=mode, graph_dims=[graph_dim] if graph_dim else None, tags=tags, top=top, layer=layer)
+    elif mode == "vector":
         results = store.search_by_vector(query, top=top, layer=layer)
     elif mode == "keyword":
         results = store.search_by_keyword(query, top=top, layer=layer)
@@ -192,6 +249,18 @@ def _handle_inject(args):
     context = args["context"]
     max_chars = args.get("max_chars", 500)
     output = _inject(context, max_chars)
+
+    store = _get_store()
+    try:
+        context_vec = store._embedder.encode(context)
+        pre_matches = store.match_preconditions(context_vec, top=3)
+        if pre_matches:
+            output += "\n\n⚠️ 环境预警:"
+            for pm in pre_matches:
+                output += f"\n  - {pm['precondition']}: 预测\"{pm['predicted_outcome'][:50]}\" (置信度:{pm['confidence']:.2f})"
+    except Exception:
+        pass
+
     return _clean_surrogates(output) if output else "No relevant memories found"
 
 
@@ -214,11 +283,36 @@ def _handle_detail(args):
     return _clean_surrogates(json.dumps(results, ensure_ascii=False, indent=2))
 
 
+def _handle_update(args):
+    store = _get_store()
+    node_id = args["id"]
+    fields = {}
+    if "content" in args:
+        fields["content"] = args["content"]
+    if "confidence" in args:
+        fields["confidence"] = args["confidence"]
+    if "context_tags" in args:
+        fields["context_tags"] = json.dumps(args["context_tags"], ensure_ascii=False)
+    if "principle" in args:
+        fields["principle"] = args["principle"]
+    ok = store.update_node(node_id, **fields)
+    return f"Updated {node_id[:8]}..." if ok else f"Node {node_id[:8]} not found"
+
+
+def _handle_delete(args):
+    store = _get_store()
+    node_id = args["id"]
+    ok = store.delete_node(node_id)
+    return f"Deleted {node_id[:8]}..." if ok else f"Node {node_id[:8]} not found"
+
+
 _HANDLERS = {
     "memory_write": _handle_write,
     "memory_search": _handle_search,
     "memory_inject": _handle_inject,
     "memory_detail": _handle_detail,
+    "memory_update": _handle_update,
+    "memory_delete": _handle_delete,
 }
 
 
@@ -242,7 +336,7 @@ def main():
                 "result": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {"listChanged": False}},
-                    "serverInfo": {"name": "mnemosyne", "version": "5.0.0"}
+                    "serverInfo": {"name": "mnemosyne", "version": "6.1.0"}
                 }
             })
 

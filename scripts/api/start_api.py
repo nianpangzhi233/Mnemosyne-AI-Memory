@@ -2,12 +2,14 @@
 """Mnemosyne REST API — FastAPI
 
 端点:
-  GET  /api/health          健康检查
-  POST /api/write           写入经验
-  GET  /api/search          搜索（支持 vector/keyword/hybrid + layer）
-  GET  /api/node/{id}       节点详情
-  GET  /api/node/{id}/graph 节点关联图
-  GET  /docs                Swagger UI
+  GET    /api/health          健康检查
+  POST   /api/write           写入经验
+  GET    /api/search          搜索（支持 precise/creative/vector/keyword/hybrid + layer）
+  GET    /api/node/{id}       节点详情
+  PATCH  /api/node/{id}       更新节点
+  DELETE /api/node/{id}       删除节点
+  GET    /api/node/{id}/graph 节点关联图
+  GET    /docs                Swagger UI
 """
 
 import argparse
@@ -29,7 +31,7 @@ from core.embedder import HarrierEmbedder
 app = FastAPI(
     title="Mnemosyne API",
     description="Bionic memory system for AI agents — REST API",
-    version="5.0.0",
+    version="6.1.0",
 )
 
 _store: Optional[SQLiteStore] = None
@@ -51,6 +53,9 @@ class WriteRequest(BaseModel):
     principle: Optional[str] = Field(None, description="Abstract principle")
     project: Optional[str] = Field(None, description="Project name")
     tags: Optional[List[str]] = Field(None, description="Tags")
+    precondition: Optional[str] = Field(None, description="Environmental condition")
+    predicted_outcome: Optional[str] = Field(None, description="Predicted result")
+    context_tags: Optional[List[str]] = Field(None, description="Context tags")
     contradicts: Optional[str] = Field(None, description="Node ID being corrected")
 
 
@@ -91,6 +96,9 @@ def write(req: WriteRequest):
         principle=req.principle,
         project=req.project,
         tags=req.tags,
+        precondition=req.precondition,
+        predicted_outcome=req.predicted_outcome,
+        context_tags=req.context_tags,
     )
     if req.contradicts:
         store.add_edge(node_id, req.contradicts, "contradicts", weight=0.7, source="api")
@@ -101,11 +109,16 @@ def write(req: WriteRequest):
 def search(
     q: str = Query(..., description="Search query"),
     layer: str = Query("L0", description="Return layer: L0 / L1 / L2"),
-    mode: str = Query("hybrid", description="Search mode: vector / keyword / hybrid"),
+    mode: str = Query("hybrid", description="Search mode: precise / creative / vector / keyword / hybrid"),
     top: int = Query(5, ge=1, le=50, description="Max results"),
+    graph_dim: str = Query(None, description="Filter by graph dimension: semantic/temporal/causal/entity"),
+    tags: str = Query(None, description="Filter by context tags (comma-separated)"),
 ):
     store = _get_store()
-    if mode == "vector":
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
+    if mode in ("precise", "creative"):
+        results = store.search_spreading(q, mode=mode, graph_dims=[graph_dim] if graph_dim else None, tags=tag_list, top=top, layer=layer)
+    elif mode == "vector":
         results = store.search_by_vector(q, top=top, layer=layer)
     elif mode == "keyword":
         results = store.search_by_keyword(q, top=top, layer=layer)
@@ -131,6 +144,34 @@ def get_node_graph(node_id: str, depth: int = Query(2, ge=1, le=4)):
         raise HTTPException(status_code=404, detail="Node not found")
     edges = store.traverse(node_id, depth=depth, max_results=50)
     return {"node": node, "edges": edges}
+
+
+class UpdateRequest(BaseModel):
+    content: Optional[str] = None
+    confidence: Optional[float] = None
+    context_tags: Optional[List[str]] = None
+    principle: Optional[str] = None
+
+
+@app.patch("/api/node/{node_id}", tags=["Memory"])
+def update_node(node_id: str, req: UpdateRequest):
+    store = _get_store()
+    fields = {k: v for k, v in req.model_dump().items() if v is not None}
+    if not fields:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    ok = store.update_node(node_id, **fields)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Node not found")
+    return {"id": node_id, "updated": True}
+
+
+@app.delete("/api/node/{node_id}", tags=["Memory"])
+def delete_node(node_id: str):
+    store = _get_store()
+    ok = store.delete_node(node_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Node not found")
+    return {"id": node_id, "deleted": True}
 
 
 # ── Entry Point ──────────────────────────────────────────────

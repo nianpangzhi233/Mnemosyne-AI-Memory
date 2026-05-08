@@ -4,11 +4,14 @@
 
 **Give your AI a brain that forgets, recalls, and dreams.**
 
-Bionic Experience & Memory System — Knowledge Graph + Vector Search + Dream Integration + MCP
+Bionic Experience & Memory System — Knowledge Graph + Vector Search + Predictive Memory + MCP
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![MCP Compatible](https://img.shields.io/badge/MCP-compatible-purple?style=flat-square)](https://modelcontextprotocol.io/)
+[![Version](https://img.shields.io/badge/version-6.1.0-black?style=flat-square)](CHANGELOG.md)
+[![Search](https://img.shields.io/badge/search-hybrid%20%7C%20precise%20%7C%20creative-orange?style=flat-square)](#knowledge-graph--multi-dimensional-retrieval)
+[![Memory](https://img.shields.io/badge/memory-predictive%20%2B%20dreaming-8A2BE2?style=flat-square)](#predictive-memory)
 
 [中文文档](docs/README_CN.md) · [Releases](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/releases)
 
@@ -47,6 +50,13 @@ memory_search(query="request body parse failure", layer="L0")
 
 # Auto-inject relevant memories on startup (memories find you)
 memory_inject(context="API proxy project")
+
+# Predictive memory: remember when an experience applies
+memory_write(
+    content="torch 2.11.0 crashes on this Windows setup; use torch 2.6.0 instead",
+    precondition="installing torch on Windows",
+    predicted_outcome="torch 2.6.0 is the stable choice"
+)
 ```
 
 ---
@@ -65,9 +75,9 @@ Inspired by ByteDance's OpenViking. Don't dump 50K tokens of context into every 
 
 Result: **83% token cost reduction** with no loss in retrieval quality.
 
-### Knowledge Graph
+### Knowledge Graph + Multi-Dimensional Retrieval
 
-7 relation types connect scattered experiences into a network:
+Memories are connected by relation types, then routed through orthogonal graph dimensions (`semantic`, `causal`, `temporal`, `entity`) for more precise retrieval:
 
 | Relation | Meaning | Example |
 |----------|---------|---------|
@@ -79,9 +89,44 @@ Result: **83% token cost reduction** with no loss in retrieval quality.
 | `transfers_to` | Cross-domain transfer | "Node.js error handling" → transfers to → "Python project" |
 | `evolved_from` | Strategy distilled from cluster | Abstract strategy from multiple experiences |
 
+v6.1 adds SYNAPSE-style spreading activation with 5 search modes:
+
+| Mode | Use case |
+|------|----------|
+| `hybrid` | Default vector + keyword + graph retrieval |
+| `precise` | Conservative traversal through strong edges |
+| `creative` | Wider association through weak edges and `is_a` concept jumps |
+| `vector` | Pure semantic similarity search |
+| `keyword` | FTS5 keyword search |
+
+### Predictive Memory
+
+Mnemosyne is no longer append-only. Experiences can declare:
+
+| Field | Meaning |
+|-------|---------|
+| `precondition` | When this memory applies |
+| `predicted_outcome` | What should happen under that condition |
+| `confidence` | Reliability score, increased by verification and reduced by contradiction |
+
+When a new memory matches an old precondition, Mnemosyne validates the old prediction automatically. Confirming evidence strengthens the memory; conflicting evidence creates a `contradicts` edge and lowers stale confidence.
+
 ### Dream (Automatic Consolidation)
 
-The human brain consolidates memories during sleep. Mnemosyne does the same — a 13-phase pipeline that automatically discovers connections, distills strategies, and prunes stale memories.
+The human brain consolidates memories during sleep. Mnemosyne does the same with a Fast/Slow dream pipeline:
+
+| Stream | Purpose |
+|--------|---------|
+| Fast Path | Deterministic maintenance: decay, sync, incremental association, index-safe cleanup |
+| Slow Path | Deeper consolidation: contradiction discovery, causal links, strategy distillation, optional LLM review |
+
+v6.1 optimizes Dream around a three-layer biomimetic architecture:
+
+| Layer | Mnemosyne component |
+|-------|--------------------|
+| Hippocampus | Write-time predictive validation and auto-association |
+| REM sleep | Incremental `similar_to` and `contradicts` discovery |
+| Prefrontal cortex | Optional LLM-assisted contradiction judgment and review |
 
 Runs automatically at 3 AM and noon daily. Or trigger manually:
 
@@ -118,7 +163,9 @@ Any AI tool that supports MCP (Model Context Protocol) can use Mnemosyne:
 }
 ```
 
-4 tools: `memory_write`, `memory_search`, `memory_inject`, `memory_detail`
+6 tools: `memory_write`, `memory_search`, `memory_inject`, `memory_detail`, `memory_update`, `memory_delete`
+
+`memory_search` supports `hybrid`, `precise`, `creative`, `vector`, and `keyword` modes, plus graph dimension and tag filters.
 
 ### REST API
 
@@ -127,7 +174,7 @@ python scripts/api/start_api.py --port 8979
 # Swagger docs: http://localhost:8979/docs
 
 curl http://localhost:8979/api/health
-# → {"status":"ok","nodes":149,"edges":104}
+# → {"status":"ok","nodes":0,"edges":0}
 
 curl "http://localhost:8979/api/search?q=gzip&layer=L0&top=5"
 ```
@@ -158,7 +205,7 @@ streamlit run scripts/dashboard/app.py --server.port 8501
 | Dashboard | Node/edge stats, type distribution, top memories |
 | Search | Search + L0→L1→L2 progressive expand |
 | Graph | D3.js force-directed graph (zoom, drag, type coloring) |
-| Dream Log | 13-phase Gantt bars, click to expand details |
+| Dream Log | Fast/Slow dream runs, phase timing, click to expand details |
 
 ---
 
@@ -170,9 +217,9 @@ scripts/
 │   ├── graph_store.py   # Graph store interface
 │   ├── sqlite_store.py  # SQLite impl (vectors + FTS5 + graph traversal)
 │   ├── embedder.py      # Embedding interface (Harrier/BGE-M3/Qwen)
-│   └── dream_pipeline.py # 13-phase dream pipeline
+│   └── dream_pipeline.py # Fast/Slow dream pipeline
 ├── api/                 # FastAPI REST API + Swagger
-├── mcp_server/          # MCP Server (zero dependencies, stdio)
+├── mcp_server/          # MCP Server (6 tools, stdio)
 ├── dashboard/           # Streamlit visualization dashboard
 ├── log_scanner/         # Conversation log scanner + filter + distill
 ├── graph_write.py       # Write CLI
@@ -192,6 +239,8 @@ Every component is swappable through abstract interfaces:
 
 Mnemosyne simulates three memory mechanisms of the human brain:
 
+**Prediction** — You enter the same situation again, and the brain expects what should happen. Predictive memory does this with `precondition` + `predicted_outcome`.
+
 **Intuition** — Walk into a kitchen, automatically think "food." The environment triggers memory. Startup injection does exactly this.
 
 **Recall** — Someone asks "how did we make that dish?" and you actively search your memory. Vector search + graph traversal finds experiences and discovers deeper connections along relation edges.
@@ -201,7 +250,8 @@ Mnemosyne simulates three memory mechanisms of the human brain:
 | Human Brain | Mnemosyne |
 |-------------|-----------|
 | Hippocampus fast encoding | `memory_write` instant write |
-| Neocortex slow consolidation | `graph_dream` 13-phase nightly pipeline |
+| Predictive coding | `precondition` + `predicted_outcome` validation |
+| Neocortex slow consolidation | `graph_dream` Fast/Slow dream pipeline |
 | Retrieval-triggered reconsolidation | Auto touch + decay update on search |
 | REM sleep abstraction | Optional 3-round LLM review |
 | Synaptic pruning | Decay scoring + cold archival |
@@ -213,7 +263,7 @@ Mnemosyne simulates three memory mechanisms of the human brain:
 
 ### LLM Review (Optional)
 
-Runs on pure rules by default — no LLM needed. For smarter review, create `llm_config.json`:
+Runs on pure rules by default — no LLM needed. For smarter review, copy `llm_config.example.json` to `llm_config.json` and fill in your own key:
 
 ```json
 {
@@ -238,6 +288,7 @@ Runs on pure rules by default — no LLM needed. For smarter review, create `llm
 
 - Python 3.10+
 - ~2GB disk space (embedding model)
+- Optional: `faiss-cpu` for faster vector search; numpy fallback is built in
 - Fully local, no external services required
 
 ## License
@@ -258,6 +309,6 @@ Inspired by: [OpenViking](https://github.com/bytedance/OpenViking) (L0/L1/L2 lay
 
 <div align="center">
 
-**[v5.0.0 Release Notes →](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/releases/tag/v5.0.0)**
+**[v6.1 Release Notes →](docs/v6.1-release-notes.md)**
 
 </div>

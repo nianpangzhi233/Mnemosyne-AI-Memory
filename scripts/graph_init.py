@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mnemosyne v4.1 — 建库建表脚本
+"""Mnemosyne v6.0 — 建库建表脚本
 
 创建 graph.db 及其所有表、索引、触发器。
 支持重复运行（IF NOT EXISTS 保护）。
@@ -35,7 +35,17 @@ def init_db(db_path: str = None):
             task_type TEXT,
             project TEXT,
             tags TEXT,
-            metadata TEXT
+            metadata TEXT,
+            abstract TEXT,
+            overview TEXT,
+            confidence REAL DEFAULT 1.0,
+            verified_at TEXT,
+            verified_count INTEGER DEFAULT 0,
+            half_life_days REAL DEFAULT 30.0,
+            precondition TEXT,
+            predicted_outcome TEXT,
+            context_tags TEXT DEFAULT '[]',
+            precondition_vec BLOB
         )
     """)
 
@@ -50,6 +60,8 @@ def init_db(db_path: str = None):
             source TEXT DEFAULT 'auto',
             status TEXT DEFAULT 'active',
             created_at TEXT NOT NULL,
+            graph_dim TEXT DEFAULT 'semantic',
+            strength TEXT DEFAULT 'strong',
             FOREIGN KEY (from_id) REFERENCES nodes(id),
             FOREIGN KEY (to_id) REFERENCES nodes(id),
             UNIQUE(from_id, to_id, relation_type)
@@ -128,7 +140,7 @@ def init_db(db_path: str = None):
 
     # meta 初始数据（INSERT OR IGNORE 保证重复运行安全）
     meta_defaults = [
-        ('version', '5.0.0'),
+        ('version', '6.0.0'),
         ('embedding_model', 'microsoft/harrier-oss-v1-0.6b'),
         ('embedding_dims', '1024'),
         ('last_dream', ''),

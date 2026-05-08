@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """Dream Pipeline — 做梦流程插件化框架
 
-v4.1 将 graph_dream.py 的 8 个 Phase 重构为独立插件类：
-  每个 Phase 继承 DreamPhase，只通过 AbstractGraphStore 接口操作数据，
-  不直接访问 SQL / _connect()。
+v6.0 Fast/Slow 双流架构：
+  Fast Path（不调 LLM，每次必跑）：
+    SnapshotPhase → SimilarToPhase → DecayPhase → CovenantPhase → SyncPhase
+  Slow Path（调 LLM，可选/异步）：
+    LogScanPhase → DistillPhase → CausalPhase → TransfersPhase →
+    ContradictsPhase → StrategyPhase → LLMReviewPhase
+  AuditPhase 始终在最后执行。
 
-原 graph_dream.py 保持不动（向后兼容），新代码全部在此模块。
+每个 Phase 继承 DreamPhase，只通过 AbstractGraphStore 接口操作数据，
+不直接访问 SQL / _connect()。
 """
 
 import json
@@ -54,6 +59,20 @@ class DreamPhase(ABC):
     @abstractmethod
     def run(self, store: AbstractGraphStore, embedder: AbstractEmbedder) -> dict: ...
 
+    @staticmethod
+    def _get_last_dream_time(store) -> str:
+        try:
+            conn = store._connect()
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT value FROM meta WHERE key='last_dream'")
+                row = cur.fetchone()
+                return row[0] if row and row[0] else ""
+            finally:
+                conn.close()
+        except Exception:
+            return ""
+
 
 _DREAM_LOG_DB = Path(__file__).resolve().parent.parent.parent / "dream_log.db"
 
@@ -95,9 +114,13 @@ class DreamPipeline:
         results = []
         for i, phase in enumerate(self._phases, 1):
             print(f"[Phase {i}] {phase.name}")
-            result = phase.run(store, embedder)
-            print(f"  结果: {result}")
-            results.append({"phase": i, "name": phase.name, "result": result})
+            try:
+                result = phase.run(store, embedder)
+                print(f"  结果: {result}")
+                results.append({"phase": i, "name": phase.name, "result": result})
+            except Exception as e:
+                print(f"  错误: {e}")
+                results.append({"phase": i, "name": phase.name, "result": {"status": "ERROR", "error": str(e)}})
 
         nodes_after = store.count_nodes()
         edges_after = store.count_edges()
@@ -126,33 +149,53 @@ class DreamPipeline:
 class SimilarToPhase(DreamPhase):
     @property
     def name(self) -> str:
-        return "向量扫描 similar_to"
+        return "向量扫描 similar_to (VectorIndexPhase)"
 
     def run(self, store: AbstractGraphStore, embedder: AbstractEmbedder) -> dict:
-        nodes = store.bulk_get_vectors()
-        nodes = [n for n in nodes if n.get("task_type") is not None]
-        if len(nodes) < 2:
-            return {"added": 0}
+        # v6.1: Incremental — only check new nodes vs all
+        last_dream = self._get_last_dream_time(store)
+        if last_dream:
+            new_nodes = store.query_nodes(
+                "created_at > ? AND task_type IS NOT NULL AND type='experience'",
+                (last_dream,)
+            )
+        else:
+            new_nodes = store.query_nodes("task_type IS NOT NULL AND type='experience'")
 
+        if not new_nodes:
+            return {"added": 0, "new_nodes": 0}
+
+        all_nodes = store.bulk_get_vectors()
+        all_nodes = [n for n in all_nodes if n.get("task_type") is not None]
         existing = store.bulk_get_edge_pairs("similar_to")
 
         edges_to_add = []
-        for i in range(len(nodes)):
-            va = np.frombuffer(nodes[i]["vector"], dtype=np.float32)
-            for j in range(i + 1, len(nodes)):
-                vb = np.frombuffer(nodes[j]["vector"], dtype=np.float32)
+        for new_n in new_nodes:
+            new_vec_raw = new_n.get("vector")
+            if not new_vec_raw:
+                continue
+            va = np.frombuffer(new_vec_raw, dtype=np.float32)
+            for old_n in all_nodes:
+                if old_n["id"] == new_n["id"]:
+                    continue
+                if (new_n["id"], old_n["id"]) in existing:
+                    continue
+                vb = np.frombuffer(old_n["vector"], dtype=np.float32)
                 sim = float(np.dot(va, vb))
-                if sim > 0.85 and (nodes[i]["id"], nodes[j]["id"]) not in existing:
-                    edges_to_add.append({
-                        "from_id": nodes[i]["id"],
-                        "to_id": nodes[j]["id"],
+                if sim > 0.85:
+                    edge = {
+                        "from_id": new_n["id"],
+                        "to_id": old_n["id"],
                         "relation_type": "similar_to",
                         "weight": round(sim, 3),
                         "source": "dream",
-                    })
+                    }
+                    edge["graph_dim"] = "semantic"
+                    edge["strength"] = "strong" if edge.get("weight", 0.5) >= 0.6 else "weak"
+                    edges_to_add.append(edge)
 
         added = store.bulk_add_edges(edges_to_add)
-        return {"added": added}
+        return {"added": added, "new_nodes": len(new_nodes)}
 
 
 class CausalPhase(DreamPhase):
@@ -186,45 +229,140 @@ class ContradictsPhase(DreamPhase):
         ("失败", "成功"), ("错误", "正确"), ("问题", "解决"),
         ("慢", "快"), ("崩溃", "稳定"), ("不能用", "能用"),
         ("不支持", "支持"), ("不要", "要"), ("不能", "能"),
+        ("不行", "行"), ("不可", "可"), ("不适用", "适用"),
     ]
 
     @property
     def name(self) -> str:
-        return "冲突检测 contradicts"
+        return "语义矛盾检测 + A-MEM 进化"
 
     def run(self, store: AbstractGraphStore, embedder: AbstractEmbedder) -> dict:
-        nodes = store.bulk_get_vectors()
-        existing = store.bulk_get_edge_pairs("contradicts")
+        # Step 1: Get nodes created since last dream (diff-based)
+        last_dream = self._get_last_dream_time(store)
+        if last_dream:
+            new_nodes = store.query_nodes(
+                "created_at > ? AND type = 'experience'",
+                (last_dream,)
+            )
+        else:
+            new_nodes = store.query_nodes("type = 'experience'")
 
-        by_task: Dict[str, list] = {}
-        for n in nodes:
-            by_task.setdefault(n.get("task_type") or "general", []).append(n)
+        if not new_nodes:
+            return {"added": 0, "evolved": 0, "scanned": 0, "new_nodes": 0}
+
+        existing = store.bulk_get_edge_pairs("contradicts")
+        store._ensure_vector_index()
 
         edges_to_add = []
-        for items in by_task.values():
-            for i in range(len(items)):
-                for j in range(i + 1, len(items)):
-                    a, b = items[i], items[j]
-                    if (a["id"], b["id"]) in existing:
-                        continue
-                    va = np.frombuffer(a["vector"], dtype=np.float32)
-                    vb = np.frombuffer(b["vector"], dtype=np.float32)
-                    sim = float(np.dot(va, vb))
-                    if sim > 0.6 and self._is_contradict(a["content"], b["content"]):
-                        edges_to_add.append({
-                            "from_id": a["id"], "to_id": b["id"],
-                            "relation_type": "contradicts", "weight": 0.7, "source": "dream",
-                        })
+        evolution_updates = []
+        scanned = 0
+
+        for new_n in new_nodes:
+            new_vec_raw = new_n.get("vector")
+            if not new_vec_raw:
+                continue
+            new_vec = np.frombuffer(new_vec_raw, dtype=np.float32)
+            candidates = store._vector_index.search(new_vec, top=10)
+
+            for cand_id, sim in candidates:
+                if new_n["id"] == cand_id:
+                    continue
+                if (new_n["id"], cand_id) in existing or (cand_id, new_n["id"]) in existing:
+                    continue
+                scanned += 1
+                cand = store.get_node(cand_id)
+                if not cand:
+                    continue
+
+                # Step 2: Keyword fast-check (zero-cost string match)
+                if not self._has_opposition_keywords(new_n["content"], cand["content"]):
+                    continue
+
+                # Step 3: LLM deep-check (if enabled, semantic understanding)
+                contradicts = True  # keyword match alone is sufficient signal
+                if self._llm_enabled():
+                    result = self._llm_judge_contradiction(new_n, cand)
+                    if result is not None:
+                        contradicts = result.get("contradicts", True)
+
+                if contradicts:
+                    edges_to_add.append({
+                        "from_id": new_n["id"], "to_id": cand_id,
+                        "relation_type": "contradicts", "weight": 0.7, "source": "dream",
+                        "graph_dim": "causal", "strength": "strong",
+                    })
+                    evolution_updates.append({
+                        "id": cand_id,
+                        "field": "confidence",
+                        "delta": -0.2,
+                    })
 
         added = store.bulk_add_edges(edges_to_add)
-        return {"added": added}
 
-    @staticmethod
-    def _is_contradict(text_a: str, text_b: str) -> bool:
-        for w1, w2 in ContradictsPhase.OPPOSITE_PAIRS:
+        for upd in evolution_updates:
+            node = store.get_node(upd["id"])
+            if node:
+                new_conf = max(0.0, node.get("confidence", 1.0) + upd["delta"])
+                store.update_node(upd["id"], confidence=new_conf)
+
+        return {"added": added, "evolved": len(evolution_updates),
+                "scanned": scanned, "new_nodes": len(new_nodes)}
+
+    @classmethod
+    def _has_opposition_keywords(cls, text_a: str, text_b: str) -> bool:
+        for w1, w2 in cls.OPPOSITE_PAIRS:
             if (w1 in text_a and w2 in text_b) or (w2 in text_a and w1 in text_b):
                 return True
         return False
+
+    @staticmethod
+    def _llm_enabled() -> bool:
+        try:
+            import sys
+            from pathlib import Path
+            scripts_dir = Path(__file__).resolve().parent.parent
+            if str(scripts_dir) not in sys.path:
+                sys.path.insert(0, str(scripts_dir))
+            from llm_judge import load_config
+            return load_config().get("enabled", False)
+        except Exception:
+            return False
+
+    @staticmethod
+    def _llm_judge_contradiction(new_node: dict, old_node: dict) -> dict:
+        try:
+            import sys
+            from pathlib import Path
+            scripts_dir = Path(__file__).resolve().parent.parent
+            if str(scripts_dir) not in sys.path:
+                sys.path.insert(0, str(scripts_dir))
+            from llm_judge import load_config, _call_llm, _extract_json
+
+            config = load_config()
+            if not config.get("enabled"):
+                return None
+
+            system = (
+                "You are a contradiction detection engine for a memory system.\n"
+                "Two memories are about the same topic area. Determine if they contradict.\n\n"
+                "Contradiction: one says X works/is good, the other says X fails/is bad.\n"
+                "Not contradiction: different contexts (Windows vs Linux).\n\n"
+                "Return EXACTLY this JSON, nothing else:\n"
+                '{"contradicts": true/false, "scope": "condition if partial", "confidence": 0.0-1.0}'
+            )
+            user = (
+                f"Memory A: {new_node.get('content', '')[:300]}\n"
+                f"Memory B: {old_node.get('content', '')[:300]}\n\n"
+                f"Principle A: {new_node.get('principle', '') or 'none'}\n"
+                f"Principle B: {old_node.get('principle', '') or 'none'}"
+            )
+            result = _call_llm(config["endpoint"], config["model"], system, user,
+                              timeout=config.get("timeout", 120))
+            if result:
+                return _extract_json(result)
+        except Exception:
+            pass
+        return None
 
 
 class TransfersPhase(DreamPhase):
@@ -375,7 +513,11 @@ class DecayPhase(DreamPhase):
             tw = TYPE_WEIGHTS.get(n.get("type", "experience"), 1.0)
             access = n.get("access_count", 0)
             base = n.get("base_score", 0.8)
-            new_decay = base * math.exp(-0.03 * days) * math.log2(access + 2) * tw
+            half_life = n.get("half_life_days") or 30.0
+            verified_count = n.get("verified_count") or 0
+            confidence = n.get("confidence") or 1.0
+            adjusted_half_life = half_life * (1 + math.log(verified_count + 1))
+            new_decay = base * math.exp(-math.log(2) * days / max(1, adjusted_half_life)) * math.log2(access + 2) * tw * confidence
             new_decay = min(2.0, max(0.0, new_decay))
             if new_decay < 0.05:
                 new_tier = "cold"
@@ -631,24 +773,38 @@ class DistillPhase(DreamPhase):
         return {"distilled": distilled, "discarded": discarded, "errors": errors, "total_raw": len(raw_nodes)}
 
 
-_ALL_PHASES = [
-    SnapshotPhase, LogScanPhase, SimilarToPhase, CausalPhase, ContradictsPhase, TransfersPhase,
-    StrategyPhase, CovenantPhase, DecayPhase, LLMReviewPhase, DistillPhase, SyncPhase, AuditPhase,
-]
+_FAST_PHASES = [SnapshotPhase, SimilarToPhase, DecayPhase, CovenantPhase, SyncPhase]
+_SLOW_PHASES = [LogScanPhase, DistillPhase, CausalPhase, TransfersPhase, ContradictsPhase, StrategyPhase, LLMReviewPhase]
+
+# Keep old name for backward compatibility
+_ALL_PHASES = [SnapshotPhase, LogScanPhase, SimilarToPhase, CausalPhase, ContradictsPhase, TransfersPhase,
+               StrategyPhase, CovenantPhase, DecayPhase, LLMReviewPhase, DistillPhase, SyncPhase, AuditPhase]
 
 
 def run_dream(store: AbstractGraphStore, embedder: AbstractEmbedder,
-              phases: Optional[List[int]] = None) -> List[Dict[str, Any]]:
+              phases: Optional[List[int]] = None,
+              slow: bool = True) -> List[Dict[str, Any]]:
     pipeline = DreamPipeline()
     audit_phase = AuditPhase()
-    phase_list = []
 
-    for i, cls in enumerate(_ALL_PHASES, 1):
-        if phases is None or i in phases:
-            if cls == AuditPhase:
-                phase_list.append(audit_phase)
-            else:
+    if phases is not None:
+        # Legacy mode: run specific phases by index from _ALL_PHASES
+        phase_list = []
+        for i, cls in enumerate(_ALL_PHASES, 1):
+            if i in phases:
+                if cls == AuditPhase:
+                    phase_list.append(audit_phase)
+                else:
+                    phase_list.append(cls())
+    else:
+        # Fast/Slow dual-stream mode
+        phase_list = []
+        for cls in _FAST_PHASES:
+            phase_list.append(cls())
+        if slow:
+            for cls in _SLOW_PHASES:
                 phase_list.append(cls())
+        phase_list.append(audit_phase)
 
     for p in phase_list:
         pipeline.register(p)

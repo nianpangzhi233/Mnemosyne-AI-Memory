@@ -9,6 +9,7 @@
 
 from .graph_store import AbstractGraphStore
 from .sqlite_store import SQLiteStore
+from .vector_index import VectorIndex
 from .embedder import AbstractEmbedder, BgeM3Embedder, HarrierEmbedder, QwenEmbedder
 from .task_runner import AbstractTaskRunner, APSchedulerRunner, CeleryRunner
 from .dream_pipeline import (
@@ -21,6 +22,7 @@ from .dream_pipeline import (
 __all__ = [
     "AbstractGraphStore",
     "SQLiteStore",
+    "VectorIndex",
     "AbstractEmbedder",
     "BgeM3Embedder",
     "HarrierEmbedder",

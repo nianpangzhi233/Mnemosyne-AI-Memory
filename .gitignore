@@ -1,9 +1,13 @@
 # Database & runtime
 graph.db
 graph.db.bak-*
+graph.db.v*.bak.*
 dream_log.db
 *.db-journal
 *.db-wal
+
+# Local secrets
+llm_config.json
 
 # Python
 __pycache__/
@@ -20,6 +24,8 @@ models/
 
 # Generated files
 hot/memory.md
+hot/.scan_state.json
+hot/*.txt
 cold/archive/
 proposals/pending.md
 reflections/log.md

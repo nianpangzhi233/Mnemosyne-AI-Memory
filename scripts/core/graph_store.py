@@ -62,6 +62,36 @@ class AbstractGraphStore(ABC):
         """向量相似度搜索，返回 top N 结果（含 similarity / score）"""
 
     @abstractmethod
+    def update_node(self, node_id: str, **fields) -> bool:
+        """Update node fields (content, confidence, context_tags, principle, etc.)
+        Returns True if node was found and updated."""
+
+    @abstractmethod
+    def delete_node(self, node_id: str) -> bool:
+        """Delete a node and all its edges. Returns True if deleted."""
+
+    @abstractmethod
+    def search_spreading(self, query: str, mode: str = "precise",
+                         graph_dims: list = None, tags: list = None,
+                         top: int = 5, layer: str = "L0", **kwargs) -> list:
+        """SYNAPSE-style spreading activation search.
+        mode: 'precise' (strong edges only, high threshold)
+              'creative' (strong+weak edges, cross-dim, low threshold)
+        graph_dims: filter by graph dimensions ['semantic','causal','temporal','entity']
+        tags: filter by context_tags
+        """
+
+    @abstractmethod
+    def match_preconditions(self, context_vector, top: int = 5) -> list:
+        """Find memories whose precondition_vec matches the given context vector.
+        Returns list of {id, precondition, predicted_outcome, confidence, similarity}."""
+
+    @abstractmethod
+    def verify_node(self, node_id: str) -> bool:
+        """Mark node as verified: verified_count++, verified_at=now, confidence+=0.05 (max 1.5).
+        Returns True if node exists."""
+
+    @abstractmethod
     def search_by_keyword(self, query: str, top: int = 5,
                           **kwargs) -> List[Dict[str, Any]]:
         """FTS5 关键词搜索，返回 top N 结果"""

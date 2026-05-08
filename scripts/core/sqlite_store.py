@@ -25,6 +25,8 @@ from .embedder import BgeM3Embedder
 # 默认 db_path: scripts/core/../../graph.db → 项目根目录下
 _DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent.parent / "graph.db"
 
+HALF_LIFE_BY_TYPE = {"experience": 30.0, "principle": 90.0, "strategy": 60.0, "correction": 60.0, "raw": 15.0}
+
 
 def _now_iso() -> str:
     """当前 UTC 时间的 ISO 8601 字符串"""
@@ -41,6 +43,8 @@ class SQLiteStore(AbstractGraphStore):
     def __init__(self, db_path: Optional[str] = None, embedder=None):
         self._db_path = db_path or str(_DEFAULT_DB_PATH)
         self._embedder = embedder or BgeM3Embedder()
+        self._vector_index = None  # lazy init
+        self._precondition_index = None  # lazy init
 
     _MAX_ABSTRACT = 150
     _MAX_OVERVIEW = 600
@@ -72,6 +76,8 @@ class SQLiteStore(AbstractGraphStore):
     def add_node(self, content: str, node_type: str = "experience",
                  task_type: Optional[str] = None, project: Optional[str] = None,
                  tags: Optional[list] = None, principle: Optional[str] = None,
+                 precondition: Optional[str] = None,
+                 predicted_outcome: Optional[str] = None,
                  **kwargs) -> str:
         conn = self._connect()
         try:
@@ -102,6 +108,15 @@ class SQLiteStore(AbstractGraphStore):
                         "WHERE key='total_nodes'"
                     )
                     conn.commit()
+                    # v6.1: auto-associate even on principle merge
+                    self._ensure_vector_index()
+                    if self._vector_index.count > 0:
+                        vec = self._embedder.encode(content)
+                        related = self._vector_index.search(vec, top=4)
+                        for related_id, sim in related:
+                            if related_id != matched_id and sim > 0.7:
+                                self.add_edge(matched_id, related_id, "similar_to",
+                                              weight=round(sim, 3), source="auto")
                     return matched_id
 
             # 第二优先：向量兜底（无 principle 时按语义相似度合并）
@@ -109,39 +124,30 @@ class SQLiteStore(AbstractGraphStore):
                 vector = self._embedder.encode(content)
                 vector_blob = vector.astype(np.float32).tobytes()
 
-                cur.execute("SELECT id, vector FROM nodes WHERE vector IS NOT NULL AND type='experience'")
-                existing = cur.fetchall()
+                # v6.1: Use VectorIndex fast routing instead of full-table scan
+                self._ensure_vector_index()
+                if self._vector_index.count > 0:
+                    candidates = self._vector_index.search(vector, top=1)
+                    if candidates and candidates[0][1] > 0.92:
+                        best_id = candidates[0][0]
+                        cur.execute("SELECT base_score, access_count FROM nodes WHERE id=?", (best_id,))
+                        row = cur.fetchone()
+                        old_base = row[0] if row else 0.8
+                        old_access = row[1] if row else 0
+                        new_base = min(1.5, old_base + 0.1)
+                        cur.execute("""
+                            UPDATE nodes SET base_score=?, decay_score=?,
+                                             access_count=access_count+1,
+                                             last_access=?, updated_at=?
+                            WHERE id=?
+                        """, (new_base, min(2.0, new_base * 1.2), _now_iso(), _now_iso(), best_id))
 
-                best_id = None
-                best_sim = 0.0
-                for nid, vec_blob in existing:
-                    if vec_blob is None:
-                        continue
-                    vec = np.frombuffer(vec_blob, dtype=np.float32)
-                    sim = float(np.dot(vector, vec))
-                    if sim > best_sim:
-                        best_sim = sim
-                        best_id = nid
-
-                if best_id and best_sim > 0.92:
-                    cur.execute("SELECT base_score, access_count FROM nodes WHERE id=?", (best_id,))
-                    row = cur.fetchone()
-                    old_base = row[0] if row else 0.8
-                    old_access = row[1] if row else 0
-                    new_base = min(1.5, old_base + 0.1)
-                    cur.execute("""
-                        UPDATE nodes SET base_score=?, decay_score=?,
-                                         access_count=access_count+1,
-                                         last_access=?, updated_at=?
-                        WHERE id=?
-                    """, (new_base, min(2.0, new_base * 1.2), _now_iso(), _now_iso(), best_id))
-
-                    cur.execute(
-                        "UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) "
-                        "WHERE key='total_nodes'"
-                    )
-                    conn.commit()
-                    return best_id
+                        cur.execute(
+                            "UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) "
+                            "WHERE key='total_nodes'"
+                        )
+                        conn.commit()
+                        return best_id
             else:
                 vector = self._embedder.encode(content)
                 vector_blob = vector.astype(np.float32).tobytes()
@@ -155,15 +161,31 @@ class SQLiteStore(AbstractGraphStore):
             tags_json = json.dumps(tags or [], ensure_ascii=False)
             abstract = self._make_abstract(content, principle)
             overview = self._make_overview(content, principle, tags_json)
+
+            # Phase 3: new field defaults
+            half_life = HALF_LIFE_BY_TYPE.get(node_type, 30.0)
+            _auto_tags = [t for t in [task_type, project] if t]
+            context_tags = json.dumps(_auto_tags, ensure_ascii=False) if _auto_tags else "[]"
+
+            # Phase 3: precondition vector encoding
+            precondition_vec = None
+            if precondition:
+                precondition_vec = self._embedder.encode(precondition).astype(np.float32).tobytes()
+
             cur.execute("""
                 INSERT INTO nodes(id, type, content, principle, vector, tier,
                                   decay_score, base_score, access_count, last_access,
                                   created_at, updated_at, task_type, project, tags, metadata,
-                                  abstract, overview)
-                VALUES (?, ?, ?, ?, ?, 'hot', 0.8, 0.8, 1, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
+                                  abstract, overview,
+                                  confidence, verified_count, half_life_days, context_tags,
+                                  precondition, predicted_outcome, precondition_vec)
+                VALUES (?, ?, ?, ?, ?, 'hot', 0.8, 0.8, 1, ?, ?, ?, ?, ?, ?, '{}', ?, ?,
+                        1.0, 0, ?, ?, ?, ?, ?)
             """, (node_id, node_type, content, principle, vector_blob,
                   created, created, created, task_type, project, tags_json,
-                  abstract, overview))
+                  abstract, overview,
+                  half_life, context_tags,
+                  precondition, predicted_outcome, precondition_vec))
 
             if principle:
                 cur.execute("""
@@ -181,6 +203,53 @@ class SQLiteStore(AbstractGraphStore):
                 "WHERE key='total_nodes'"
             )
             conn.commit()
+
+            # Incremental vector index update
+            if self._vector_index is not None:
+                self._vector_index.add(node_id, np.frombuffer(vector_blob, dtype=np.float32))
+
+            # Phase 3: Update precondition index with new vector
+            if precondition and precondition_vec:
+                self._ensure_precondition_index()
+                if self._precondition_index is not None:
+                    self._precondition_index.add(node_id, np.frombuffer(precondition_vec, dtype=np.float32))
+
+            # Phase 3: Predictive validation (only top-1 match to limit embed calls)
+            if precondition:
+                self._ensure_precondition_index()
+                if self._precondition_index and self._precondition_index.count > 0:
+                    pre_vec = np.frombuffer(precondition_vec, dtype=np.float32)
+                    matches = self._precondition_index.search(pre_vec, top=2)  # v6.1: top=2 to find non-self match
+                    for match_id, sim in matches:
+                        if match_id == node_id:
+                            continue
+                        old = self.get_node(match_id)
+                        if old and old.get("predicted_outcome"):
+                            old_pred_vec = self._embedder.encode(old["predicted_outcome"])
+                            new_content_vec = vector  # v6.1: reuse already-encoded content vector
+                            contradiction_sim = float(np.dot(old_pred_vec, new_content_vec))
+                            if contradiction_sim < 0.3:
+                                self.add_edge(node_id, match_id, "contradicts", weight=0.8, source="auto")
+                                conn2 = self._connect()
+                                try:
+                                    conn2.execute("UPDATE nodes SET confidence = MAX(0.0, confidence - 0.2) WHERE id=?", (match_id,))
+                                    conn2.commit()
+                                finally:
+                                    conn2.close()
+                            else:
+                                self.verify_node(match_id)
+
+            # v6.1: Real-time auto-association — find top-3 similar nodes and create weak edges
+            self._ensure_vector_index()
+            if self._vector_index.count > 0:
+                related = self._vector_index.search(vector, top=4)
+                for related_id, sim in related:
+                    if related_id == node_id:
+                        continue
+                    if sim > 0.7:
+                        self.add_edge(node_id, related_id, "similar_to",
+                                      weight=round(sim, 3), source="auto")
+
             return node_id
         finally:
             conn.close()
@@ -193,7 +262,9 @@ class SQLiteStore(AbstractGraphStore):
             cur.execute("""
                 SELECT id, type, content, principle, tier, decay_score, base_score,
                        access_count, last_access, created_at, updated_at,
-                       task_type, project, tags, metadata
+                       task_type, project, tags, metadata,
+                       confidence, verified_at, verified_count, half_life_days,
+                       precondition, predicted_outcome, context_tags, precondition_vec
                 FROM nodes WHERE id = ?
             """, (node_id,))
             row = cur.fetchone()
@@ -201,7 +272,9 @@ class SQLiteStore(AbstractGraphStore):
                 return None
             keys = ["id", "type", "content", "principle", "tier", "decay_score",
                     "base_score", "access_count", "last_access", "created_at",
-                    "updated_at", "task_type", "project", "tags", "metadata"]
+                    "updated_at", "task_type", "project", "tags", "metadata",
+                    "confidence", "verified_at", "verified_count", "half_life_days",
+                    "precondition", "predicted_outcome", "context_tags", "precondition_vec"]
             result = dict(zip(keys, row))
             # 反序列化 tags
             if result.get("tags"):
@@ -658,7 +731,8 @@ class SQLiteStore(AbstractGraphStore):
             cur = conn.cursor()
             sql = ("SELECT id, type, content, principle, vector, tier, "
                    "decay_score, base_score, access_count, last_access, "
-                   "created_at, updated_at, task_type, project, tags, metadata "
+                   "created_at, updated_at, task_type, project, tags, metadata, "
+                   "confidence, verified_count, half_life_days "
                    "FROM nodes")
             if where_clause:
                 sql += " WHERE " + where_clause
@@ -666,7 +740,8 @@ class SQLiteStore(AbstractGraphStore):
             keys = ["id", "type", "content", "principle", "vector", "tier",
                     "decay_score", "base_score", "access_count", "last_access",
                     "created_at", "updated_at", "task_type", "project",
-                    "tags", "metadata"]
+                    "tags", "metadata",
+                    "confidence", "verified_count", "half_life_days"]
             return [dict(zip(keys, row)) for row in cur.fetchall()]
         finally:
             conn.close()
@@ -757,6 +832,252 @@ class SQLiteStore(AbstractGraphStore):
         finally:
             conn.close()
 
+    # ── Phase 2 新方法 ─────────────────────────────────────
+
+    def update_node(self, node_id: str, **fields) -> bool:
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM nodes WHERE id=?", (node_id,))
+            if not cur.fetchone():
+                return False
+
+            allowed = {"content", "principle", "confidence", "context_tags",
+                       "precondition", "predicted_outcome", "half_life_days",
+                       "tier", "decay_score", "base_score", "task_type", "project", "tags"}
+            updates = {}
+            for k, v in fields.items():
+                if k in allowed:
+                    updates[k] = v
+
+            if not updates:
+                return True
+
+            updates["updated_at"] = _now_iso()
+            set_clause = ", ".join(f"{k}=?" for k in updates)
+            values = list(updates.values()) + [node_id]
+            conn.execute(f"UPDATE nodes SET {set_clause} WHERE id=?", values)
+
+            if "content" in fields:
+                new_abstract = self._make_abstract(fields["content"], fields.get("principle"))
+                new_overview = self._make_overview(fields["content"], fields.get("principle"))
+                conn.execute("UPDATE nodes SET abstract=?, overview=? WHERE id=?",
+                             (new_abstract, new_overview, node_id))
+
+            if "precondition" in fields and fields["precondition"]:
+                vec = self._embedder.encode(fields["precondition"])
+                vec_blob = vec.astype(np.float32).tobytes()
+                conn.execute("UPDATE nodes SET precondition_vec=? WHERE id=?", (vec_blob, node_id))
+
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+    def delete_node(self, node_id: str) -> bool:
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM nodes WHERE id=?", (node_id,))
+            if not cur.fetchone():
+                return False
+            conn.execute("DELETE FROM edges WHERE from_id=? OR to_id=?", (node_id, node_id))
+            conn.execute("DELETE FROM nodes WHERE id=?", (node_id,))
+            conn.commit()
+            # v6.1: Mark deleted in vector indices (synaptic weakening)
+            if self._vector_index is not None:
+                self._vector_index.mark_deleted(node_id)
+            if self._precondition_index is not None:
+                self._precondition_index.mark_deleted(node_id)
+            return True
+        finally:
+            conn.close()
+
+    def verify_node(self, node_id: str) -> bool:
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id, confidence, verified_count FROM nodes WHERE id=?", (node_id,))
+            row = cur.fetchone()
+            if not row:
+                return False
+            new_confidence = min(1.5, row[1] + 0.05)
+            new_count = row[2] + 1
+            now = _now_iso()
+            conn.execute(
+                "UPDATE nodes SET confidence=?, verified_count=?, verified_at=?, updated_at=? WHERE id=?",
+                (new_confidence, new_count, now, now, node_id))
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+    def match_preconditions(self, context_vector, top: int = 5) -> list:
+        self._ensure_precondition_index()
+        if self._precondition_index is None or self._precondition_index.count == 0:
+            return []
+
+        matches = self._precondition_index.search(context_vector, top)
+        results = []
+        for node_id, similarity in matches:
+            node = self.get_node(node_id)
+            if node and node.get("predicted_outcome"):
+                results.append({
+                    "id": node_id,
+                    "precondition": node.get("precondition", ""),
+                    "predicted_outcome": node["predicted_outcome"],
+                    "confidence": node.get("confidence", 1.0),
+                    "similarity": round(similarity, 3),
+                })
+        return results
+
+    def search_spreading(self, query: str, mode: str = "precise",
+                         graph_dims: list = None, tags: list = None,
+                         top: int = 5, layer: str = "L0", **kwargs) -> list:
+        self._ensure_vector_index()
+        q_vec = self._embedder.encode(query)
+
+        # Step 1: Seed nodes via FAISS
+        seeds = self._vector_index.search(q_vec, top=3)
+        if not seeds:
+            return []
+
+        # Step 2: Spreading parameters by mode
+        if mode == "precise":
+            decay_by_dim = {"semantic": 0.7, "causal": 0.8, "temporal": 0.6, "entity": 0.5}
+            min_activation = 0.3
+            max_hops = 2
+            allowed_strength = ["strong"]
+        else:  # creative
+            decay_by_dim = {"semantic": 0.8, "causal": 0.9, "temporal": 0.7, "entity": 0.6}
+            min_activation = 0.1
+            max_hops = 3
+            allowed_strength = ["strong", "weak"]
+
+        # Step 3: Initialize activation map
+        activation = {node_id: similarity for node_id, similarity in seeds}
+
+        # Step 4: Spread activation
+        conn = self._connect()
+        try:
+            # v6.1: creative mode is_a zero-hop — inject principle parents
+            if mode == "creative":
+                cur = conn.cursor()
+                for node_id in list(activation.keys()):
+                    cur.execute(
+                        "SELECT to_id FROM edges WHERE from_id=? AND relation_type='is_a' AND status='active'",
+                        (node_id,)
+                    )
+                    for row in cur.fetchall():
+                        principle_id = row[0]
+                        if principle_id not in activation:
+                            activation[principle_id] = 0.5
+
+            frontier = list(activation.keys())
+            visited = set()
+
+            for hop in range(max_hops):
+                next_frontier = []
+                for node_id in frontier:
+                    if node_id in visited:
+                        continue
+                    visited.add(node_id)
+
+                    dim_filter = ""
+                    if graph_dims:
+                        placeholders = ",".join(["?"] * len(graph_dims))
+                        dim_filter = f" AND graph_dim IN ({placeholders})"
+
+                    strength_filter = " AND strength IN (" + ",".join(["?"] * len(allowed_strength)) + ")"
+
+                    sql = (f"SELECT from_id, to_id, graph_dim, weight FROM edges "
+                           f"WHERE (from_id=? OR to_id=?) AND status='active'"
+                           f"{dim_filter}{strength_filter}")
+
+                    params = [node_id, node_id]
+                    if graph_dims:
+                        params.extend(graph_dims)
+                    params.extend(allowed_strength)
+
+                    cur = conn.cursor()
+                    cur.execute(sql, params)
+
+                    for row in cur.fetchall():
+                        from_id, to_id, gdim, weight = row
+                        target = to_id if from_id == node_id else from_id
+
+                        decay = decay_by_dim.get(gdim, 0.5)
+                        new_act = activation[node_id] * weight * decay
+
+                        if new_act > min_activation:
+                            if target not in activation or new_act > activation.get(target, 0):
+                                activation[target] = new_act
+                                next_frontier.append(target)
+
+                frontier = next_frontier
+
+            # Step 5: Lateral inhibition
+            cur = conn.cursor()
+            activated_ids = list(activation.keys())
+            if len(activated_ids) > 1:
+                for i in range(len(activated_ids)):
+                    for j in range(i + 1, len(activated_ids)):
+                        a, b = activated_ids[i], activated_ids[j]
+                        cur.execute(
+                            "SELECT 1 FROM edges WHERE ((from_id=? AND to_id=?) OR (from_id=? AND to_id=?)) "
+                            "AND relation_type='similar_to' AND status='active'",
+                            (a, b, b, a))
+                        if cur.fetchone():
+                            weaker = a if activation[a] < activation[b] else b
+                            activation[weaker] *= 0.5
+
+            # Step 6: Tag filtering
+            if tags:
+                filtered = {}
+                for nid, act in activation.items():
+                    node = self.get_node(nid)
+                    if node:
+                        node_tags = node.get("context_tags", "[]")
+                        if isinstance(node_tags, str):
+                            try:
+                                node_tags = json.loads(node_tags)
+                            except (json.JSONDecodeError, TypeError):
+                                node_tags = []
+                        if any(t in node_tags for t in tags):
+                            filtered[nid] = act
+                activation = filtered
+
+            # Step 7: Return top results with layer
+            sorted_results = sorted(activation.items(), key=lambda x: -x[1])[:top]
+
+            results = []
+            for nid, act_score in sorted_results:
+                node = self.get_node(nid)
+                if not node:
+                    continue
+                base = {"id": nid, "activation": round(act_score, 3), "tier": node.get("tier", "hot")}
+                if layer == "L0":
+                    base["abstract"] = node.get("abstract") or node.get("content", "")[:150]
+                elif layer == "L1":
+                    base["abstract"] = node.get("abstract") or node.get("content", "")[:150]
+                    base["principle"] = node.get("principle")
+                    base["confidence"] = node.get("confidence", 1.0)
+                else:
+                    base["content"] = node.get("content", "")
+                    base["principle"] = node.get("principle")
+                    base["confidence"] = node.get("confidence", 1.0)
+                    base["decay_score"] = round(node.get("decay_score", 0), 3)
+                results.append(base)
+
+            # Touch visited nodes
+            if results:
+                self._touch_nodes([r["id"] for r in results], conn)
+            conn.commit()
+
+            return results
+        finally:
+            conn.close()
+
     # ── 内部方��� ──────────────────────────────────────────
 
     @staticmethod
@@ -791,3 +1112,41 @@ class SQLiteStore(AbstractGraphStore):
                                  updated_at = ?
                 WHERE id = ?
             """, (now, now, nid))
+
+    # ── FAISS 索引延迟构建 ──────────────────────────────────
+
+    def _ensure_vector_index(self):
+        if self._vector_index is not None:
+            # v6.1: Check if lazy rebuild is needed
+            if self._vector_index.rebuild_needed():
+                nodes = self.bulk_get_vectors()
+                if nodes:
+                    vectors = np.array([np.frombuffer(n["vector"], dtype=np.float32) for n in nodes if n.get("vector")])
+                    ids = [n["id"] for n in nodes if n.get("vector")]
+                    self._vector_index.rebuild_if_needed(vectors, ids)
+            return
+        from .vector_index import VectorIndex
+        self._vector_index = VectorIndex(self._embedder.get_dimension())
+        nodes = self.bulk_get_vectors()
+        if nodes:
+            vectors = np.array([np.frombuffer(n["vector"], dtype=np.float32) for n in nodes if n.get("vector")])
+            ids = [n["id"] for n in nodes if n.get("vector")]
+            if len(vectors) > 0:
+                self._vector_index.build(vectors, ids)
+
+    def _ensure_precondition_index(self):
+        if self._precondition_index is not None:
+            return
+        from .vector_index import VectorIndex
+        self._precondition_index = VectorIndex(self._embedder.get_dimension())
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id, precondition_vec FROM nodes WHERE precondition_vec IS NOT NULL")
+            rows = cur.fetchall()
+            if rows:
+                vectors = np.array([np.frombuffer(r[1], dtype=np.float32) for r in rows])
+                ids = [r[0] for r in rows]
+                self._precondition_index.build(vectors, ids)
+        finally:
+            conn.close()

@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Mnemosyne v4.1 — 做梦全流程（8个Phase）
+"""Mnemosyne v6.1 — 做梦全流程（Fast/Slow 双流 + 三层仿生架构）
 
 通过 core 模块操作：
-- DreamPipeline + 8 个 Phase 插件类
+- DreamPipeline + Fast/Slow 双流 Phase
+- v6.1: ContradictsPhase 增量检测（diff + keyword + LLM）
+- v6.1: SimilarToPhase 增量检测
+- v6.1: VectorIndex 快速路由 + Creative is_a 零跳
 - SQLiteStore + HarrierEmbedder 注入
 """
 
@@ -74,6 +77,7 @@ def main():
     parser.add_argument("--full", action="store_true", help="完整做梦（全部Phase）")
     parser.add_argument("--phase", type=int, help="只跑某个Phase")
     parser.add_argument("--stats", action="store_true", help="查看统计")
+    parser.add_argument("--no-slow", action="store_true", help="Skip slow path (LLM phases)")
     args = parser.parse_args()
 
     if args.stats:
@@ -81,7 +85,7 @@ def main():
         return
 
     store = SQLiteStore(embedder=HarrierEmbedder())
-    embedder = HarrierEmbedder()
+    embedder = store._embedder  # v6.1: reuse same embedder instance
 
     if args.phase:
         results = run_dream(store, embedder, phases=[args.phase])
@@ -99,7 +103,7 @@ def main():
         conn.commit()
         conn.close()
 
-        results = run_dream(store, embedder)
+        results = run_dream(store, embedder, slow=not args.no_slow)
 
         print("\n[Dream] 完成!")
         show_stats()

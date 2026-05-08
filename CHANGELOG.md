@@ -2,6 +2,46 @@
 
 All notable changes to Mnemosyne will be documented in this file.
 
+## [6.1.0] - 2026-05-08
+
+### Added
+- **Three-layer biomimetic architecture** — write-time hippocampus validation, dream-time REM consolidation, optional prefrontal LLM judgment.
+- **Incremental contradiction detection** — `ContradictsPhase` now scans new memories against indexed candidates instead of full O(n²) pairwise comparison.
+- **Incremental similar-memory discovery** — `SimilarToPhase` processes new nodes against the existing graph instead of rescanning everything.
+- **FAISS-backed VectorIndex** — fast in-memory vector routing with automatic numpy fallback when `faiss-cpu` is unavailable.
+- **Creative search concept jumps** — `creative` mode can jump through `is_a` principle parents for wider association.
+- **Write-time auto-association** — new memories can create weak `similar_to` links during encoding.
+
+### Changed
+- `memory_search` now supports 5 modes: `hybrid`, `precise`, `creative`, `vector`, `keyword`.
+- Predictive validation reuses already-encoded vectors and searches `top=2` to avoid self-matching.
+- Dream CLI documents v6.1 Fast/Slow flow and reuses a single embedder instance.
+- Edge metadata backfilled with `graph_dim` and `strength` for multi-dimensional retrieval.
+- Vector indexes use lazy rebuild after pruning or deletion instead of immediate full rebuild.
+- `meta.json` version → 6.1.0.
+
+### Fixed
+- Moved `_get_last_dream_time` to the shared DreamPhase base class.
+- Cleared stale deleted IDs after `VectorIndex.build()`.
+- Principle merges now trigger association logic instead of bypassing graph updates.
+- Restored `CausalPhase` in the dream pipeline.
+
+## [6.0.0] - 2026-05-07
+
+### Added
+- **MAGMA-style graph dimensions** — semantic, temporal, causal, and entity dimensions over the same SQLite graph.
+- **A-MEM-style memory evolution** — old memories can be verified, contradicted, strengthened, or weakened when new memories arrive.
+- **Predictive Memory** — nodes can store `precondition`, `predicted_outcome`, `confidence`, `verified_at`, `verified_count`, and `half_life_days`.
+- **SYNAPSE spreading activation** — precise and creative graph traversal for associative retrieval.
+- **MCP update/delete tools** — MCP server expanded from 4 tools to 6 tools with `memory_update` and `memory_delete`.
+- **Predictive injection warnings** — `memory_inject` can surface precondition matches before the agent repeats known mistakes.
+
+### Changed
+- Search upgraded from basic vector/keyword retrieval to graph-aware spreading activation.
+- `GraphStore` interface expanded with update, delete, spreading search, precondition matching, and verification methods.
+- Dream pipeline split into Fast/Slow paths for deterministic maintenance and deeper consolidation.
+- Migration script upgrades v5.0 databases with new node and edge fields.
+
 ## [5.0.0] - 2026-05-05
 
 ### Added
