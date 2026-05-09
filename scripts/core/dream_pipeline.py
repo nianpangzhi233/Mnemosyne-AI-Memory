@@ -36,6 +36,11 @@ TYPE_WEIGHTS = {
 _PROPOSALS_PATH = Path(__file__).resolve().parent.parent.parent / "proposals" / "pending.md"
 _HOT_MEMORY_PATH = Path(__file__).resolve().parent.parent.parent / "hot" / "memory.md"
 
+_SENSITIVE_KEYWORDS = [
+    "密码", "密钥", "token", "secret", "password", "api_key", "私钥",
+    "身份证", "手机号", "银行卡", "credential", "private_key",
+]
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -397,6 +402,445 @@ class TransfersPhase(DreamPhase):
 
         added = store.bulk_add_edges(edges_to_add)
         return {"added": added}
+
+
+class SkillEmbryoPhase(DreamPhase):
+    """Detect mature experience clusters and create skill embryos."""
+
+    MIN_CLUSTER_SIZE = 3
+    MIN_EDGE_WEIGHT = 0.85
+    MIN_AVG_WEIGHT = 0.85
+    DUPLICATE_JACCARD = 0.8
+    MAX_EMBRYOS_PER_RUN = 3
+
+    @property
+    def name(self) -> str:
+        return "技能胚胎涌现 SkillEmbryoPhase"
+
+    def run(self, store: AbstractGraphStore, embedder: AbstractEmbedder) -> dict:
+        similar_edges = store.query_edges(
+            "relation_type='similar_to' AND status='active' AND weight >= ?",
+            (self.MIN_EDGE_WEIGHT,),
+        )
+        if not similar_edges:
+            return {"clusters_scanned": 0, "candidates": 0, "created": 0, "skipped_duplicates": 0}
+
+        experience_nodes = {
+            n["id"]: n for n in store.query_nodes("type='experience' AND tier != 'cold'")
+        }
+        parent = {}
+
+        def find(x):
+            parent.setdefault(x, x)
+            if parent[x] != x:
+                parent[x] = find(parent[x])
+            return parent[x]
+
+        def union(a, b):
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[rb] = ra
+
+        filtered_edges = []
+        for edge in similar_edges:
+            a, b = edge["from_id"], edge["to_id"]
+            if a not in experience_nodes or b not in experience_nodes:
+                continue
+            if self._is_sensitive(experience_nodes[a]) or self._is_sensitive(experience_nodes[b]):
+                continue
+            union(a, b)
+            filtered_edges.append(edge)
+
+        components: Dict[str, set] = {}
+        for node_id in parent:
+            components.setdefault(find(node_id), set()).add(node_id)
+
+        existing_sources = self._existing_skill_source_sets(store)
+        candidates = []
+        skipped_duplicates = 0
+
+        for node_ids in components.values():
+            if len(node_ids) < self.MIN_CLUSTER_SIZE:
+                continue
+            cluster_edges = [
+                e for e in filtered_edges
+                if e["from_id"] in node_ids and e["to_id"] in node_ids
+            ]
+            if len(cluster_edges) < self.MIN_CLUSTER_SIZE - 1:
+                continue
+            avg_weight = sum(e.get("weight") or 0 for e in cluster_edges) / len(cluster_edges)
+            if avg_weight < self.MIN_AVG_WEIGHT:
+                continue
+            if self._is_duplicate(node_ids, existing_sources):
+                skipped_duplicates += 1
+                continue
+            candidates.append((node_ids, cluster_edges, avg_weight))
+
+        candidates.sort(key=lambda item: (len(item[0]), item[2]), reverse=True)
+        created = []
+        for node_ids, cluster_edges, avg_weight in candidates[:self.MAX_EMBRYOS_PER_RUN]:
+            nodes = [experience_nodes[nid] for nid in node_ids]
+            name = self._name_for_cluster(nodes)
+            skill_id = store.create_skill_artifact(
+                name=name,
+                source_node_ids=sorted(node_ids),
+                content=self._content_for_cluster(name, nodes, avg_weight),
+                status="embryo",
+                trigger_patterns=self._triggers_for_cluster(nodes),
+                preconditions=[],
+                procedure=[],
+                verification=None,
+                failure_modes=[],
+                risk_level="medium",
+                metadata={
+                    "discovered_by": "SkillEmbryoPhase",
+                    "cluster_reason": "connected component of strong similar_to experience edges",
+                    "cluster_size": len(node_ids),
+                    "cluster_edge_count": len(cluster_edges),
+                    "average_edge_weight": round(avg_weight, 3),
+                    "m2_version": "v7.0-M2",
+                },
+            )
+            created.append(skill_id)
+            existing_sources.append(set(node_ids))
+
+        return {
+            "clusters_scanned": len(components),
+            "candidates": len(candidates),
+            "created": len(created),
+            "created_skill_ids": created,
+            "skipped_duplicates": skipped_duplicates,
+        }
+
+    @staticmethod
+    def _is_sensitive(node: dict) -> bool:
+        text = " ".join(str(node.get(k) or "") for k in ("content", "principle", "tags", "metadata")).lower()
+        return any(keyword in text for keyword in _SENSITIVE_KEYWORDS)
+
+    @staticmethod
+    def _existing_skill_source_sets(store) -> List[set]:
+        if not hasattr(store, "list_skill_artifacts"):
+            return []
+        artifacts = store.list_skill_artifacts(statuses=["embryo", "draft", "evolved", "approved"])
+        source_sets = []
+        for artifact in artifacts:
+            sources = artifact.get("source_node_ids") or []
+            if sources:
+                source_sets.append(set(sources))
+        return source_sets
+
+    def _is_duplicate(self, node_ids: set, existing_sources: List[set]) -> bool:
+        for sources in existing_sources:
+            union = len(node_ids | sources)
+            if union and len(node_ids & sources) / union >= self.DUPLICATE_JACCARD:
+                return True
+        return False
+
+    @staticmethod
+    def _name_for_cluster(nodes: List[dict]) -> str:
+        principle_counts: Dict[str, int] = {}
+        for node in nodes:
+            principle = (node.get("principle") or "").strip()
+            if principle:
+                principle_counts[principle] = principle_counts.get(principle, 0) + 1
+        if principle_counts:
+            principle = sorted(principle_counts.items(), key=lambda item: (-item[1], len(item[0])))[0][0]
+            return f"Skill Embryo: {principle[:80]}"
+        best = sorted(nodes, key=lambda n: n.get("decay_score") or 0, reverse=True)[0]
+        return f"Skill Embryo: {(best.get('content') or '')[:80]}"
+
+    @staticmethod
+    def _triggers_for_cluster(nodes: List[dict]) -> List[str]:
+        triggers = []
+        for node in nodes:
+            for value in (node.get("task_type"), node.get("project"), node.get("principle")):
+                if value and value not in triggers:
+                    triggers.append(str(value)[:80])
+            if len(triggers) >= 5:
+                break
+        return triggers[:5]
+
+    @staticmethod
+    def _content_for_cluster(name: str, nodes: List[dict], avg_weight: float) -> str:
+        lines = [
+            f"Skill Embryo: {name.replace('Skill Embryo: ', '', 1)}",
+            "Status: embryo",
+            f"Cluster size: {len(nodes)}",
+            f"Average similar_to weight: {avg_weight:.3f}",
+            "Source summaries:",
+        ]
+        for node in sorted(nodes, key=lambda n: n.get("decay_score") or 0, reverse=True)[:5]:
+            summary = node.get("principle") or node.get("content") or node["id"]
+            lines.append(f"- {summary[:160]}")
+        return "\n".join(lines)
+
+
+class SkillDevelopmentPhase(DreamPhase):
+    """Develop skill embryos into executable draft skills using LLM."""
+
+    MAX_DEVELOP_PER_RUN = 3
+    RISK_LEVELS = {"low", "medium", "high"}
+
+    @property
+    def name(self) -> str:
+        return "技能草稿发育 SkillDevelopmentPhase"
+
+    def run(self, store: AbstractGraphStore, embedder: AbstractEmbedder) -> dict:
+        if not all(hasattr(store, attr) for attr in ("list_skill_artifacts", "update_skill_artifact")):
+            return {"developed": 0, "errors": 0, "skipped": "skill artifact API unavailable"}
+
+        try:
+            import sys
+            scripts_dir = Path(__file__).resolve().parent.parent
+            if str(scripts_dir) not in sys.path:
+                sys.path.insert(0, str(scripts_dir))
+            from llm_judge import load_config, _call_llm, _extract_json
+        except Exception as exc:
+            return {"developed": 0, "errors": 1, "skipped": f"LLM helpers unavailable: {exc}"}
+
+        config = load_config()
+        if not config.get("enabled"):
+            return {"developed": 0, "errors": 0, "skipped": "LLM disabled"}
+
+        embryos = store.list_skill_artifacts(statuses=["embryo"])
+        developed = []
+        errors = []
+        skipped = 0
+
+        for artifact in embryos[:self.MAX_DEVELOP_PER_RUN]:
+            source_nodes = self._source_nodes(store, artifact)
+            if not source_nodes:
+                skipped += 1
+                continue
+            system, user = self._build_prompt(artifact, source_nodes)
+            result = _call_llm(
+                config["endpoint"], config["model"], system, user,
+                timeout=config.get("timeout", 120),
+            )
+            if not result:
+                errors.append({"skill_id": artifact["node_id"], "error": "empty LLM result"})
+                continue
+            try:
+                parsed = _extract_json(result)
+            except Exception as exc:
+                errors.append({"skill_id": artifact["node_id"], "error": f"invalid JSON: {exc}"})
+                continue
+            cleaned, error = self._validate_draft(parsed, artifact)
+            if error:
+                errors.append({"skill_id": artifact["node_id"], "error": error})
+                continue
+
+            metadata = artifact.get("metadata") or {}
+            metadata.update({
+                "developed_by": "SkillDevelopmentPhase",
+                "development_model": config.get("model"),
+                "development_rationale": cleaned.get("rationale", ""),
+                "m3_version": "v7.0-M3",
+            })
+            store.update_skill_artifact(
+                artifact["node_id"],
+                name=cleaned["name"],
+                status="draft",
+                review_status="draft",
+                trigger_patterns=cleaned["trigger_patterns"],
+                preconditions=cleaned["preconditions"],
+                procedure=cleaned["procedure"],
+                verification=cleaned["verification"],
+                failure_modes=cleaned["failure_modes"],
+                risk_level=cleaned["risk_level"],
+                evidence_node_ids=cleaned["evidence_node_ids"],
+                metadata=metadata,
+            )
+            if hasattr(store, "sync_skill_node_content"):
+                store.sync_skill_node_content(
+                    artifact["node_id"], cleaned["name"], cleaned["trigger_patterns"],
+                    cleaned["procedure"], cleaned["verification"],
+                )
+            developed.append(artifact["node_id"])
+
+        return {
+            "embryos": len(embryos),
+            "developed": len(developed),
+            "developed_skill_ids": developed,
+            "skipped": skipped,
+            "errors": errors,
+        }
+
+    @staticmethod
+    def _source_nodes(store, artifact: dict) -> List[dict]:
+        nodes = []
+        for node_id in artifact.get("source_node_ids") or []:
+            node = store.get_node(node_id)
+            if node:
+                nodes.append(node)
+        return nodes
+
+    @staticmethod
+    def _build_prompt(artifact: dict, source_nodes: List[dict]) -> tuple:
+        system = (
+            "You are Mnemosyne's Skill Development engine.\n"
+            "Turn a graph-discovered skill embryo into a usable draft skill.\n"
+            "A draft skill must be operational, grounded in the source memories, cautious, and verifiable.\n"
+            "Do not invent unsupported behavior, secrets, credentials, or personal data.\n"
+            "Return EXACTLY one JSON object and nothing else."
+        )
+        source_summary = []
+        for node in source_nodes:
+            source_summary.append({
+                "id": node.get("id"),
+                "content": (node.get("content") or "")[:800],
+                "principle": node.get("principle"),
+                "task_type": node.get("task_type"),
+                "project": node.get("project"),
+                "confidence": node.get("confidence"),
+                "verified_count": node.get("verified_count"),
+            })
+        user = (
+            "Skill embryo:\n"
+            f"{json.dumps(artifact, ensure_ascii=False, indent=2, default=str)}\n\n"
+            "Source memories:\n"
+            f"{json.dumps(source_summary, ensure_ascii=False, indent=2, default=str)}\n\n"
+            "Develop this embryo into a draft skill. Return EXACTLY this JSON schema:\n"
+            "{\n"
+            '  "name": "short actionable skill name",\n'
+            '  "trigger_patterns": ["when to use this skill"],\n'
+            '  "preconditions": ["conditions that must be true before using it"],\n'
+            '  "procedure": ["step 1", "step 2"],\n'
+            '  "verification": "how to check the skill worked",\n'
+            '  "failure_modes": ["known pitfall or when not to use it"],\n'
+            '  "risk_level": "low|medium|high",\n'
+            '  "evidence_node_ids": ["source node id used as evidence"],\n'
+            '  "rationale": "one short sentence explaining why this is a valid draft"\n'
+            "}"
+        )
+        return system, user
+
+    def _validate_draft(self, parsed: dict, artifact: dict) -> tuple:
+        if not isinstance(parsed, dict):
+            return None, "draft JSON must be an object"
+        required = [
+            "name", "trigger_patterns", "preconditions", "procedure",
+            "verification", "failure_modes", "risk_level", "evidence_node_ids",
+        ]
+        for key in required:
+            if key not in parsed:
+                return None, f"missing field: {key}"
+        cleaned = {
+            "name": self._clean_text(parsed.get("name"), 120),
+            "trigger_patterns": self._clean_list(parsed.get("trigger_patterns"), 8),
+            "preconditions": self._clean_list(parsed.get("preconditions"), 8),
+            "procedure": self._clean_list(parsed.get("procedure"), 12),
+            "verification": self._clean_text(parsed.get("verification"), 800),
+            "failure_modes": self._clean_list(parsed.get("failure_modes"), 8),
+            "risk_level": self._clean_text(parsed.get("risk_level"), 20).lower(),
+            "rationale": self._clean_text(parsed.get("rationale", ""), 500),
+        }
+        if not cleaned["name"]:
+            return None, "name is empty"
+        if not cleaned["trigger_patterns"]:
+            return None, "trigger_patterns must not be empty"
+        if len(cleaned["procedure"]) < 2:
+            return None, "procedure must contain at least 2 steps"
+        if not cleaned["verification"]:
+            return None, "verification is empty"
+        if cleaned["risk_level"] not in self.RISK_LEVELS:
+            return None, f"invalid risk_level: {cleaned['risk_level']}"
+        source_ids = set(artifact.get("source_node_ids") or [])
+        evidence_ids = self._clean_list(parsed.get("evidence_node_ids"), 20)
+        if not evidence_ids:
+            return None, "evidence_node_ids must not be empty"
+        if not set(evidence_ids).issubset(source_ids):
+            return None, "evidence_node_ids must be a subset of source_node_ids"
+        cleaned["evidence_node_ids"] = evidence_ids
+        if self._contains_sensitive(cleaned):
+            return None, "draft contains sensitive keyword"
+        return cleaned, None
+
+    @staticmethod
+    def _clean_text(value, max_len: int) -> str:
+        return str(value or "").strip()[:max_len]
+
+    @classmethod
+    def _clean_list(cls, value, max_items: int) -> List[str]:
+        if not isinstance(value, list):
+            return []
+        items = []
+        for item in value:
+            text = cls._clean_text(item, 500)
+            if text:
+                items.append(text)
+            if len(items) >= max_items:
+                break
+        return items
+
+    @staticmethod
+    def _contains_sensitive(cleaned: dict) -> bool:
+        text = json.dumps(cleaned, ensure_ascii=False).lower()
+        return any(keyword in text for keyword in _SENSITIVE_KEYWORDS)
+
+
+class SkillMirrorEvolutionPhase(DreamPhase):
+    """Mirror skills to SKILL.md and record dry-run Darwin evolution scores."""
+
+    EVOLVE_THRESHOLD = 80.0
+
+    @property
+    def name(self) -> str:
+        return "技能镜像与Darwin干跑 SkillMirrorEvolutionPhase"
+
+    def run(self, store: AbstractGraphStore, embedder: AbstractEmbedder) -> dict:
+        required = ["list_skill_artifacts", "sync_skill_file", "score_skill_dry_run", "record_skill_evolution_run", "update_skill_artifact"]
+        if not all(hasattr(store, attr) for attr in required):
+            return {"synced": 0, "scored": 0, "evolved": 0, "skipped": "skill mirror API unavailable"}
+
+        artifacts = store.list_skill_artifacts(statuses=["draft", "evolved", "approved"])
+        synced = []
+        scored = []
+        evolved = []
+        for artifact in artifacts:
+            refreshed = store.get_skill_artifact(artifact["node_id"]) if hasattr(store, "get_skill_artifact") else artifact
+            markdown = store.render_skill_markdown(refreshed)
+            score = store.score_skill_dry_run(refreshed, markdown)
+            old_score = refreshed.get("final_score")
+            status = "scored"
+            new_status = refreshed.get("status")
+            if new_status == "draft" and score["final_score"] >= self.EVOLVE_THRESHOLD:
+                new_status = "evolved"
+                status = "evolved"
+                evolved.append(refreshed["node_id"])
+
+            store.update_skill_artifact(
+                refreshed["node_id"],
+                status=new_status,
+                review_status=new_status,
+                mnemosyne_score=score["mnemosyne_score"],
+                darwin_score=score["darwin_score"],
+                final_score=score["final_score"],
+            )
+            sync_info = store.sync_skill_file(refreshed["node_id"])
+            run_id = store.record_skill_evolution_run(
+                refreshed["node_id"],
+                old_score=old_score,
+                new_score=score["final_score"],
+                mnemosyne_score=score["mnemosyne_score"],
+                darwin_score=score["darwin_score"],
+                status=status,
+                dimension="m4_dry_run",
+                note="SKILL.md mirror + dry-run Darwin/Mnemosyne score",
+                eval_mode="dry_run",
+                metadata={"breakdown": score["breakdown"], "file_hash": sync_info["file_hash"]},
+            )
+            synced.append(sync_info)
+            scored.append({"node_id": refreshed["node_id"], "run_id": run_id, **score, "status": new_status})
+
+        return {
+            "synced": len(synced),
+            "scored": len(scored),
+            "evolved": len(evolved),
+            "evolved_skill_ids": evolved,
+            "files": synced,
+            "scores": scored,
+        }
 
 
 class StrategyPhase(DreamPhase):
@@ -774,11 +1218,11 @@ class DistillPhase(DreamPhase):
 
 
 _FAST_PHASES = [SnapshotPhase, SimilarToPhase, DecayPhase, CovenantPhase, SyncPhase]
-_SLOW_PHASES = [LogScanPhase, DistillPhase, CausalPhase, TransfersPhase, ContradictsPhase, StrategyPhase, LLMReviewPhase]
+_SLOW_PHASES = [LogScanPhase, DistillPhase, CausalPhase, TransfersPhase, ContradictsPhase, SkillEmbryoPhase, SkillDevelopmentPhase, SkillMirrorEvolutionPhase, StrategyPhase, LLMReviewPhase]
 
 # Keep old name for backward compatibility
 _ALL_PHASES = [SnapshotPhase, LogScanPhase, SimilarToPhase, CausalPhase, ContradictsPhase, TransfersPhase,
-               StrategyPhase, CovenantPhase, DecayPhase, LLMReviewPhase, DistillPhase, SyncPhase, AuditPhase]
+               SkillEmbryoPhase, SkillDevelopmentPhase, SkillMirrorEvolutionPhase, StrategyPhase, CovenantPhase, DecayPhase, LLMReviewPhase, DistillPhase, SyncPhase, AuditPhase]
 
 
 def run_dream(store: AbstractGraphStore, embedder: AbstractEmbedder,

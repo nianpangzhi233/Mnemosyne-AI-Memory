@@ -1,4 +1,4 @@
-# 记忆系统规则（Mnemosyne v6.1）
+# 记忆系统规则（Mnemosyne v7.0）
 
 CRITICAL: 此文件是强制规则，不是建议。每次会话都必须遵循。
 
@@ -24,7 +24,7 @@ memory_inject 会返回相关历史记忆 + 环境预警（precondition 匹配�
 | 被纠正 | "不对""不是这样""应该是""错了" | `memory_write(content="正确做法", type="correction", contradicts="被纠正的节点ID")` |
 | 新经验 | 你刚解决了一个非显然的技术问题 | `memory_write(content="经验", type="experience", principle="原理")` |
 
-### v6.1 增强写入（Predictive Memory）
+### v7.0 增强写入（Predictive Memory）
 
 如果经验有**触发条件**和**预期结果**，使用 precondition 和 predicted_outcome：
 
@@ -54,7 +54,7 @@ memory_write(
 memory_search(query="问题关键词", top=5, layer="L0", mode="hybrid")
 ```
 
-### v6.1 搜索模式
+### v7.0 搜索模式
 
 | mode | 说明 | 适用场景 |
 |------|------|---------|
@@ -64,14 +64,14 @@ memory_search(query="问题关键词", top=5, layer="L0", mode="hybrid")
 | `"vector"` | 纯向量语义搜索 | 关键词不匹配时 |
 | `"keyword"` | FTS5 关键词搜索 | 精确匹配时 |
 
-### v6.1 标签过滤
+### v7.0 标签过滤
 
 按 project 或 task_type 过滤：
 ```
 memory_search(query="torch", tags=["cli_tool"], mode="precise")
 ```
 
-### v6.1 维度过滤
+### v7.0 维度过滤
 
 按 graph_dim 过滤：
 ```
@@ -86,11 +86,45 @@ memory_search(query="API issue", graph_dim="causal")
 1. 调用 `memory_write(content="正确做法", type="correction", contradicts="被纠正的节点ID")`
 2. contradicts 参数会**自动降低**被纠正节点的 confidence（-0.2）
 
-v6.1 的 Predictive Validation 会在写入时**自动检测**：如果新经验和旧 memory 的 precondition 匹配但内容矛盾 → 自动标记 contradicts 边 + 降低旧 memory 的 confidence。
+v7.0 的 Predictive Validation 会在写入时**自动检测**：如果新经验和旧 memory 的 precondition 匹配但内容矛盾 → 自动标记 contradicts 边 + 降低旧 memory 的 confidence。
 
-## 规则 5：善用 memory_update 和 memory_delete
+## 规则 5：Skill Memory 使用规则
 
-v6.1 支持在需要时更新或删除已有记忆：
+v7.0 新增 Skill Memory System。Skill 是高权重长期能力，不是普通记忆摘要。
+
+生命周期：
+
+```
+embryo -> draft -> evolved -> approved -> deprecated
+```
+
+默认注入只允许：
+
+```
+status=approved AND inject_enabled=true AND 存在 verified_by 边
+```
+
+使用规则：
+
+- 需要解决具体任务时，可先 `memory_skill_inject(context="当前任务")` 获取已批准 Skill。
+- 想探索未批准 Skill，必须显式用 `mode="experimental"`，并清楚标记其状态。
+- 低风险 `evolved` 试用必须走 `mode="trial"`，并在任务结束调用 `memory_skill_feedback`。
+- 不要用 `memory_update` 手改 Skill 状态；批准必须走 `memory_skill_approve`，反馈必须走 `memory_skill_feedback`，废弃必须走 `memory_skill_deprecate`。
+
+Skill 工具：
+
+```
+memory_crystallize       # 经验节点 -> skill embryo/draft
+memory_skill_search      # 搜索所有 Skill，不代表可注入
+memory_skill_inject      # 安全注入，默认只给 approved
+memory_skill_approve     # 批准，强制 verified_by
+memory_skill_feedback    # 反馈闭环，写边和计数
+memory_skill_deprecate   # 软废弃，保留证据链
+```
+
+## 规则 6：善用 memory_update 和 memory_delete
+
+v7.0 支持在需要时更新或删除已有记忆：
 
 ```
 // 修正某条记忆的置信度
@@ -103,7 +137,7 @@ memory_update(id="xxx", context_tags=["python", "windows"])
 memory_delete(id="xxx")
 ```
 
-## 规则 6：自检
+## 规则 7：自检
 
 每隔 10 轮对话，问自己一次：
 - 这次会话我完成过任务吗？→ 写入（带 principle 和 precondition，如果适用）

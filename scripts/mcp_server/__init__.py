@@ -2,7 +2,7 @@
 """Mnemosyne MCP Server — stdio transport
 
 零依赖实现 MCP 协议（JSON-RPC over stdin/stdout）。
-提供 6 个工具：memory_write, memory_search, memory_inject, memory_detail, memory_update, memory_delete
+提供长期记忆工具和 v7.0 Skill Memory System 工具。
 """
 
 import json
@@ -193,6 +193,97 @@ def _tools_list():
                 },
                 "required": ["id"]
             }
+        },
+        {
+            "name": "memory_crystallize",
+            "description": "Crystallize source memory nodes into a skill draft/embryo. Creates a skill node, skill_artifact, and crystallized_from edges.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Skill name"},
+                    "source_node_ids": {"type": "array", "items": {"type": "string"}, "description": "Source memory node IDs"},
+                    "content": {"type": "string", "description": "Optional full skill content"},
+                    "status": {"type": "string", "enum": ["embryo", "draft"], "default": "draft", "description": "Initial status"},
+                    "trigger_patterns": {"type": "array", "items": {"type": "string"}, "description": "Trigger patterns"},
+                    "preconditions": {"type": "array", "items": {"type": "string"}, "description": "Preconditions"},
+                    "procedure": {"type": "array", "items": {"type": "string"}, "description": "Procedure steps"},
+                    "verification": {"type": "string", "description": "Verification method"},
+                    "failure_modes": {"type": "array", "items": {"type": "string"}, "description": "Known failure modes"},
+                    "risk_level": {"type": "string", "enum": ["low", "medium", "high"], "default": "medium"},
+                    "metadata": {"type": "object", "description": "Extra metadata"}
+                },
+                "required": ["name", "source_node_ids"]
+            }
+        },
+        {
+            "name": "memory_skill_search",
+            "description": "Search skill artifacts. Discovery only; this does not mean a skill is safe to inject.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Task or problem to match against known skills"},
+                    "top": {"type": "integer", "default": 5, "description": "Max skills to return"},
+                    "min_similarity": {"type": "number", "default": 0.45, "description": "Minimum vector similarity required"},
+                    "statuses": {"type": "array", "items": {"type": "string"}, "description": "Optional status filter"},
+                    "include_deprecated": {"type": "boolean", "default": False, "description": "Include deprecated skills when no statuses filter is provided"}
+                },
+                "required": ["query"]
+            }
+        },
+        {
+            "name": "memory_skill_inject",
+            "description": "Inject compact skill pointers for the current context. Returns short references, not full SOPs.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "context": {"type": "string", "description": "Current task/context"},
+                    "max_chars": {"type": "integer", "default": 800, "description": "Max characters to return"},
+                    "top": {"type": "integer", "default": 3, "description": "Max skills to include"},
+                    "min_similarity": {"type": "number", "default": 0.45, "description": "Minimum vector similarity required"},
+                    "mode": {"type": "string", "enum": ["default", "experimental", "trial"], "default": "default", "description": "Injection mode. Default only injects approved skills."}
+                },
+                "required": ["context"]
+            }
+        },
+        {
+            "name": "memory_skill_approve",
+            "description": "Approve a skill for default injection. Requires at least one verified_by edge.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "skill_id": {"type": "string", "description": "Skill node ID"},
+                    "approval_mode": {"type": "string", "default": "manual", "description": "manual | auto_experimental | auto_strict"}
+                },
+                "required": ["skill_id"]
+            }
+        },
+        {
+            "name": "memory_skill_feedback",
+            "description": "Record skill usage feedback and update graph edges plus trial counters.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "skill_id": {"type": "string", "description": "Skill node ID"},
+                    "rating": {"type": "string", "enum": ["helpful", "not_helpful", "misleading", "partially_useful"]},
+                    "note": {"type": "string"},
+                    "task_context": {"type": "string"},
+                    "used_as": {"type": "string", "enum": ["approved", "trial", "experimental"], "default": "trial"},
+                    "verification_result": {"type": "string"}
+                },
+                "required": ["skill_id", "rating"]
+            }
+        },
+        {
+            "name": "memory_skill_deprecate",
+            "description": "Soft-deprecate a skill. Keeps node, artifact, file, and evidence chain.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "skill_id": {"type": "string", "description": "Skill node ID"},
+                    "reason": {"type": "string", "description": "Deprecation reason"}
+                },
+                "required": ["skill_id"]
+            }
         }
     ]
 
@@ -306,6 +397,74 @@ def _handle_delete(args):
     return f"Deleted {node_id[:8]}..." if ok else f"Node {node_id[:8]} not found"
 
 
+def _handle_crystallize(args):
+    store = _get_store()
+    node_id = store.create_skill_artifact(
+        name=args["name"],
+        source_node_ids=args["source_node_ids"],
+        content=args.get("content"),
+        status=args.get("status", "draft"),
+        trigger_patterns=args.get("trigger_patterns", []),
+        preconditions=args.get("preconditions", []),
+        procedure=args.get("procedure", []),
+        verification=args.get("verification"),
+        failure_modes=args.get("failure_modes", []),
+        risk_level=args.get("risk_level", "medium"),
+        metadata=args.get("metadata", {}),
+    )
+    artifact = store.get_skill_artifact(node_id)
+    return _clean_surrogates(json.dumps({"skill_id": node_id, "artifact": artifact}, ensure_ascii=False, indent=2))
+
+
+def _handle_skill_search(args):
+    store = _get_store()
+    query = args["query"]
+    top = args.get("top", 5)
+    min_similarity = args.get("min_similarity", 0.45)
+    statuses = args.get("statuses")
+    include_deprecated = args.get("include_deprecated", False)
+    results = store.search_skills(query, top=top, min_similarity=min_similarity,
+                                  statuses=statuses, include_deprecated=include_deprecated)
+    return _clean_surrogates(json.dumps(results, ensure_ascii=False, indent=2))
+
+
+def _handle_skill_inject(args):
+    store = _get_store()
+    context = args["context"]
+    max_chars = args.get("max_chars", 800)
+    top = args.get("top", 3)
+    min_similarity = args.get("min_similarity", 0.45)
+    mode = args.get("mode", "default")
+    output = store.inject_skills(context, max_chars=max_chars, top=top,
+                                 min_similarity=min_similarity, mode=mode)
+    return _clean_surrogates(output) if output else "No relevant skills found"
+
+
+def _handle_skill_approve(args):
+    store = _get_store()
+    result = store.approve_skill(args["skill_id"], approval_mode=args.get("approval_mode", "manual"))
+    return _clean_surrogates(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+def _handle_skill_feedback(args):
+    store = _get_store()
+    result = store.skill_feedback(
+        args["skill_id"],
+        args["rating"],
+        note=args.get("note", ""),
+        task_context=args.get("task_context", ""),
+        used_as=args.get("used_as", "trial"),
+        verification_result=args.get("verification_result", ""),
+    )
+    return _clean_surrogates(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+def _handle_skill_deprecate(args):
+    store = _get_store()
+    result = store.deprecate_skill(args["skill_id"], reason=args.get("reason", ""))
+    return _clean_surrogates(json.dumps(result, ensure_ascii=False, indent=2))
+
+
 _HANDLERS = {
     "memory_write": _handle_write,
     "memory_search": _handle_search,
@@ -313,6 +472,12 @@ _HANDLERS = {
     "memory_detail": _handle_detail,
     "memory_update": _handle_update,
     "memory_delete": _handle_delete,
+    "memory_crystallize": _handle_crystallize,
+    "memory_skill_search": _handle_skill_search,
+    "memory_skill_inject": _handle_skill_inject,
+    "memory_skill_approve": _handle_skill_approve,
+    "memory_skill_feedback": _handle_skill_feedback,
+    "memory_skill_deprecate": _handle_skill_deprecate,
 }
 
 
@@ -336,7 +501,7 @@ def main():
                 "result": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {"listChanged": False}},
-                    "serverInfo": {"name": "mnemosyne", "version": "6.1.0"}
+                    "serverInfo": {"name": "mnemosyne", "version": "7.0.0"}
                 }
             })
 

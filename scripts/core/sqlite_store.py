@@ -10,7 +10,9 @@
 - count_nodes / count_edges: 统计
 """
 
+import hashlib
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,13 +26,40 @@ from .embedder import BgeM3Embedder
 
 # 默认 db_path: scripts/core/../../graph.db → 项目根目录下
 _DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent.parent / "graph.db"
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_SKILLS_DIR = _PROJECT_ROOT / "skills"
 
 HALF_LIFE_BY_TYPE = {"experience": 30.0, "principle": 90.0, "strategy": 60.0, "correction": 60.0, "raw": 15.0}
+
+SKILL_STATUSES = {"embryo", "draft", "evolved", "approved", "deprecated"}
+RISK_LEVELS = {"low", "medium", "high"}
 
 
 def _now_iso() -> str:
     """当前 UTC 时间的 ISO 8601 字符串"""
     return datetime.now(timezone.utc).isoformat()
+
+
+def _json_dumps(value: Any) -> str:
+    return json.dumps(value if value is not None else [], ensure_ascii=False)
+
+
+def _json_loads(value: Any, default: Any):
+    if value in (None, ""):
+        return default
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return default
+
+
+def _slugify(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    if slug:
+        return slug[:80]
+    return hashlib.sha1(name.encode("utf-8")).hexdigest()[:12]
 
 
 class SQLiteStore(AbstractGraphStore):
@@ -320,6 +349,173 @@ class SQLiteStore(AbstractGraphStore):
         finally:
             conn.close()
 
+    # ── Skill artifacts (v7.0 M1) ─────────────────────────
+
+    def _make_skill_content(self, name: str, trigger_patterns: list = None,
+                            procedure: list = None, verification: str = None) -> str:
+        parts = [f"Skill: {name}"]
+        if trigger_patterns:
+            parts.append("Trigger: " + "; ".join(str(t) for t in trigger_patterns))
+        if procedure:
+            parts.append("Procedure: " + "; ".join(str(p) for p in procedure))
+        if verification:
+            parts.append("Verification: " + str(verification))
+        return "\n".join(parts)
+
+    def _has_active_edge(self, node_id: str, relation_type: str) -> bool:
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            row = cur.execute("""
+                SELECT 1 FROM edges
+                WHERE from_id=? AND relation_type=? AND status='active'
+                LIMIT 1
+            """, (node_id, relation_type)).fetchone()
+            return row is not None
+        finally:
+            conn.close()
+
+    def _unique_skill_slug(self, base_slug: str) -> str:
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            slug = base_slug
+            suffix = 2
+            while cur.execute("SELECT 1 FROM skill_artifacts WHERE slug=?", (slug,)).fetchone():
+                slug = f"{base_slug}-{suffix}"
+                suffix += 1
+            return slug
+        finally:
+            conn.close()
+
+    def create_skill_artifact(self, name: str, source_node_ids: List[str],
+                              content: str = None, status: str = "draft",
+                              trigger_patterns: List[str] = None,
+                              preconditions: List[str] = None,
+                              procedure: List[str] = None,
+                              verification: str = None,
+                              failure_modes: List[str] = None,
+                              risk_level: str = "medium",
+                              metadata: Dict[str, Any] = None,
+                              slug: str = None) -> str:
+        """Create a skill node, its artifact row, and crystallized_from edges."""
+        if status not in SKILL_STATUSES:
+            raise ValueError(f"invalid skill status: {status}")
+        if risk_level not in RISK_LEVELS:
+            raise ValueError(f"invalid risk_level: {risk_level}")
+        if not source_node_ids:
+            raise ValueError("source_node_ids is required")
+
+        trigger_patterns = trigger_patterns or []
+        preconditions = preconditions or []
+        procedure = procedure or []
+        failure_modes = failure_modes or []
+        metadata = metadata or {}
+        content = content or self._make_skill_content(name, trigger_patterns, procedure, verification)
+        slug = self._unique_skill_slug(slug or _slugify(name))
+
+        node_id = self.add_node(
+            content=content,
+            node_type="skill",
+            task_type="skill_memory",
+            tags=["skill", status, risk_level],
+            principle=name,
+        )
+        created = _now_iso()
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO skill_artifacts(
+                    node_id, name, slug, status, version,
+                    trigger_patterns, preconditions, procedure, verification, failure_modes,
+                    risk_level, review_status, inject_enabled, trial_enabled, requires_feedback,
+                    source_node_ids, evidence_node_ids, created_at, updated_at, metadata
+                ) VALUES (?, ?, ?, ?, '0.1.0', ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, '[]', ?, ?, ?)
+            """, (
+                node_id, name, slug, status,
+                _json_dumps(trigger_patterns), _json_dumps(preconditions),
+                _json_dumps(procedure), verification, _json_dumps(failure_modes),
+                risk_level, status, _json_dumps(source_node_ids), created, created,
+                json.dumps(metadata, ensure_ascii=False),
+            ))
+            conn.commit()
+        except sqlite3.IntegrityError as exc:
+            conn.close()
+            raise ValueError(f"skill artifact insert failed: {exc}") from exc
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+        for source_id in source_node_ids:
+            self.add_edge(node_id, source_id, "crystallized_from", weight=0.9, source="skill_crystallize")
+        return node_id
+
+    def get_skill_artifact(self, node_id: str) -> Optional[Dict[str, Any]]:
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM skill_artifacts WHERE node_id=?", (node_id,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            keys = [d[0] for d in cur.description]
+            artifact = dict(zip(keys, row))
+            for key in ("trigger_patterns", "preconditions", "procedure", "failure_modes", "source_node_ids", "evidence_node_ids"):
+                artifact[key] = _json_loads(artifact.get(key), [])
+            artifact["metadata"] = _json_loads(artifact.get("metadata"), {})
+            return artifact
+        finally:
+            conn.close()
+
+    def update_skill_artifact(self, node_id: str, **fields) -> bool:
+        if not fields:
+            return False
+        allowed = {
+            "name", "slug", "status", "version", "trigger_patterns", "preconditions",
+            "procedure", "verification", "failure_modes", "risk_level", "review_status",
+            "approval_mode", "inject_enabled", "trial_enabled", "requires_feedback",
+            "mnemosyne_score", "darwin_score", "final_score", "source_node_ids",
+            "evidence_node_ids", "trial_count", "trial_success_count", "trial_failure_count",
+            "last_trial_at", "promotion_candidate", "needs_revision", "file_path",
+            "file_hash", "file_synced_at", "approved_at", "deprecated_at", "metadata",
+        }
+        json_fields = {"trigger_patterns", "preconditions", "procedure", "failure_modes", "source_node_ids", "evidence_node_ids", "metadata"}
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return False
+        updates["updated_at"] = _now_iso()
+        for key in list(updates):
+            if key in json_fields and not isinstance(updates[key], str):
+                updates[key] = json.dumps(updates[key], ensure_ascii=False)
+        sets = ", ".join(f"{key}=?" for key in updates)
+        values = list(updates.values()) + [node_id]
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute(f"UPDATE skill_artifacts SET {sets} WHERE node_id=?", values)
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+    def list_skill_artifacts(self, statuses: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            sql = "SELECT node_id FROM skill_artifacts"
+            params = []
+            if statuses:
+                placeholders = ", ".join("?" for _ in statuses)
+                sql += f" WHERE status IN ({placeholders})"
+                params.extend(statuses)
+            cur.execute(sql, params)
+            return [self.get_skill_artifact(row[0]) for row in cur.fetchall()]
+        finally:
+            conn.close()
+
     def get_edge(self, edge_id: str) -> Optional[Dict[str, Any]]:
         """根据 ID 获取边，返回字段字典或 None"""
         conn = self._connect()
@@ -566,7 +762,12 @@ class SQLiteStore(AbstractGraphStore):
                       layer: str = "L2",
                       **kwargs) -> List[Dict[str, Any]]:
         vec_results = self.search_by_vector(query, top=top * 2, _touch=False, layer=layer)
-        kw_results = self.search_by_keyword(query, top=top * 2, _touch=False, layer=layer)
+        try:
+            kw_results = self.search_by_keyword(query, top=top * 2, _touch=False, layer=layer)
+        except sqlite3.OperationalError:
+            # FTS5 MATCH is picky about punctuation/operators. Keep hybrid search usable
+            # by falling back to vector-only results when the keyword query is invalid.
+            kw_results = []
 
         merged = {}
         for r in vec_results:
@@ -607,6 +808,461 @@ class SQLiteStore(AbstractGraphStore):
                 conn.close()
 
         return top_results
+
+    def search_skills(self, query: str, top: int = 5,
+                      min_similarity: float = 0.45,
+                      statuses: Optional[List[str]] = None,
+                      include_deprecated: bool = False) -> List[Dict[str, Any]]:
+        """Search reusable skill nodes only.
+
+        Skill nodes are sparse, so filtering generic search results can miss them.
+        This searches within type='skill' directly and returns compact metadata for
+        injection/use by agents.
+        """
+        q_vec = self._embedder.encode(query)
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            conditions = ["n.type='skill'", "n.vector IS NOT NULL"]
+            params = []
+            if statuses:
+                placeholders = ", ".join("?" for _ in statuses)
+                conditions.append(f"sa.status IN ({placeholders})")
+                params.extend(statuses)
+            elif not include_deprecated:
+                conditions.append("sa.status != 'deprecated'")
+            where = " AND ".join(conditions)
+            cur.execute(f"""
+                SELECT n.id, n.content, n.principle, n.vector, n.tier, n.decay_score,
+                       n.task_type, n.project, n.tags, n.abstract, n.overview,
+                       n.confidence, n.verified_count,
+                       sa.name, sa.slug, sa.status, sa.version,
+                       sa.trigger_patterns, sa.preconditions, sa.procedure,
+                       sa.verification, sa.failure_modes, sa.risk_level,
+                       sa.review_status, sa.approval_mode, sa.inject_enabled,
+                       sa.trial_enabled, sa.requires_feedback,
+                       sa.mnemosyne_score, sa.darwin_score, sa.final_score,
+                       sa.source_node_ids, sa.evidence_node_ids, sa.file_path,
+                       sa.metadata
+                FROM nodes n
+                JOIN skill_artifacts sa ON sa.node_id = n.id
+                WHERE {where}
+            """, params)
+            rows = cur.fetchall()
+
+            scored = []
+            for row in rows:
+                vec = np.frombuffer(row[3], dtype=np.float32)
+                sim = float(np.dot(q_vec, vec))
+                if sim < min_similarity:
+                    continue
+                decay = row[5] or 0.8
+                confidence = row[11] if row[11] is not None else 1.0
+                score = sim * max(0.1, decay) * max(0.1, confidence)
+                scored.append((score, sim, row))
+
+            scored.sort(key=lambda x: x[0], reverse=True)
+            results = []
+            for score, sim, row in scored[:top]:
+                tags = _json_loads(row[8], [])
+                metadata = _json_loads(row[34], {})
+
+                cur.execute("""
+                    SELECT relation_type, to_id, weight, source
+                    FROM edges
+                    WHERE from_id=? AND status='active'
+                      AND relation_type IN ('crystallized_from', 'verified_by', 'supersedes')
+                """, (row[0],))
+                edges = [
+                    {"relation_type": e[0], "to_id": e[1], "weight": e[2], "source": e[3]}
+                    for e in cur.fetchall()
+                ]
+
+                results.append({
+                    "id": row[0],
+                    "type": "skill",
+                    "similarity": round(sim, 3),
+                    "score": round(score, 3),
+                    "tier": row[4],
+                    "abstract": row[9] or row[1][:150],
+                    "overview": row[10] or row[1][:600],
+                    "principle": row[2],
+                    "task_type": row[6],
+                    "project": row[7],
+                    "tags": tags,
+                    "metadata": metadata,
+                    "confidence": row[11],
+                    "verified_count": row[12],
+                    "name": row[13],
+                    "slug": row[14],
+                    "status": row[15],
+                    "version": row[16],
+                    "trigger_patterns": _json_loads(row[17], []),
+                    "preconditions": _json_loads(row[18], []),
+                    "procedure": _json_loads(row[19], []),
+                    "verification": row[20],
+                    "failure_modes": _json_loads(row[21], []),
+                    "risk_level": row[22],
+                    "review_status": row[23],
+                    "approval_mode": row[24],
+                    "inject_enabled": bool(row[25]),
+                    "trial_enabled": bool(row[26]),
+                    "requires_feedback": bool(row[27]),
+                    "mnemosyne_score": row[28],
+                    "darwin_score": row[29],
+                    "final_score": row[30],
+                    "source_node_ids": _json_loads(row[31], []),
+                    "evidence_node_ids": _json_loads(row[32], []),
+                    "file_path": row[33],
+                    "edges": edges,
+                })
+
+            if results:
+                self._touch_nodes([r["id"] for r in results], conn)
+                conn.commit()
+            return results
+        finally:
+            conn.close()
+
+    def inject_skills(self, context: str, max_chars: int = 800, top: int = 3,
+                      min_similarity: float = 0.45, mode: str = "default") -> str:
+        """Return a compact skill pointer block for the current context."""
+        if mode == "experimental":
+            statuses = ["draft", "evolved", "approved"]
+        elif mode == "trial":
+            statuses = ["approved", "evolved"]
+        else:
+            statuses = ["approved"]
+        skills = self.search_skills(context, top=top * 3, min_similarity=min_similarity,
+                                    statuses=statuses)
+        gated = []
+        for skill in skills:
+            status = skill.get("status")
+            if status == "approved":
+                if skill.get("inject_enabled") and self._has_active_edge(skill["id"], "verified_by"):
+                    skill["used_as"] = "approved"
+                    gated.append(skill)
+            elif mode == "trial" and status == "evolved":
+                if (skill.get("risk_level") == "low" and skill.get("trial_enabled")
+                        and skill.get("requires_feedback")):
+                    skill["used_as"] = "trial"
+                    skill["feedback_required"] = True
+                    gated.append(skill)
+            elif mode == "experimental" and status in ("draft", "evolved"):
+                skill["used_as"] = "experimental"
+                gated.append(skill)
+            if len(gated) >= top:
+                break
+        skills = gated
+        if not skills:
+            return ""
+
+        lines = ["[Skills]"]
+        for skill in skills:
+            triggers = skill.get("trigger_patterns") or []
+            verification = skill.get("verification") or ""
+            evidence = skill.get("source_node_ids") or []
+            title = skill.get("name") or (skill.get("abstract") or "").split("\n", 1)[0]
+            if title.lower().startswith("skill:"):
+                title = title.split(":", 1)[1].strip()
+            line = f"- {title or skill['id'][:8]} ({skill['id'][:8]}, status={skill.get('status')}, used_as={skill.get('used_as')}, score={skill['score']})"
+            if triggers:
+                line += f" trigger={'; '.join(str(t) for t in triggers[:2])}"
+            if verification:
+                line += f" verify={str(verification)[:80]}"
+            if evidence:
+                line += f" evidence={', '.join(str(e)[:8] for e in evidence[:3])}"
+            if skill.get("feedback_required"):
+                line += " feedback_required=true"
+            lines.append(line)
+
+        output = "\n".join(lines)
+        return output[:max_chars]
+
+    def sync_skill_node_content(self, node_id: str, name: str,
+                                trigger_patterns: List[str] = None,
+                                procedure: List[str] = None,
+                                verification: str = None) -> bool:
+        content = self._make_skill_content(name, trigger_patterns or [], procedure or [], verification)
+        vector = self._embedder.encode(content).astype(np.float32).tobytes()
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                UPDATE nodes
+                SET content=?, principle=?, vector=?, abstract=?, overview=?, updated_at=?
+                WHERE id=? AND type='skill'
+            """, (
+                content, name, vector, content[:self._MAX_ABSTRACT], content[:self._MAX_OVERVIEW],
+                _now_iso(), node_id,
+            ))
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _hash_text(text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _markdown_list(items: list, numbered: bool = False) -> str:
+        if not items:
+            return "- None"
+        lines = []
+        for idx, item in enumerate(items, 1):
+            prefix = f"{idx}." if numbered else "-"
+            text = re.sub(r"^\s*\d+[.)]\s+", "", str(item)) if numbered else str(item)
+            lines.append(f"{prefix} {text}")
+        return "\n".join(lines)
+
+    def render_skill_markdown(self, artifact: Dict[str, Any]) -> str:
+        status = artifact.get("status") or "draft"
+        lines = [f"# {artifact.get('name') or artifact.get('node_id')}", ""]
+        if status == "deprecated":
+            lines.extend([
+                "> Status: deprecated",
+                f"> Deprecated at: {artifact.get('deprecated_at') or 'unknown'}",
+                "",
+            ])
+        lines.extend([
+            f"> Status: {status}",
+            f"> Version: {artifact.get('version') or '0.1.0'}",
+            f"> Risk: {artifact.get('risk_level') or 'medium'}",
+            f"> Node: {artifact.get('node_id')}",
+            "",
+            "## Triggers",
+            self._markdown_list(artifact.get("trigger_patterns") or []),
+            "",
+            "## Preconditions",
+            self._markdown_list(artifact.get("preconditions") or []),
+            "",
+            "## Procedure",
+            self._markdown_list(artifact.get("procedure") or [], numbered=True),
+            "",
+            "## Verification",
+            artifact.get("verification") or "None",
+            "",
+            "## Failure Modes",
+            self._markdown_list(artifact.get("failure_modes") or []),
+            "",
+            "## Evidence",
+            "### Source Nodes",
+            self._markdown_list(artifact.get("source_node_ids") or []),
+            "",
+            "### Verification Nodes",
+            self._markdown_list(artifact.get("evidence_node_ids") or []),
+            "",
+        ])
+        metadata = artifact.get("metadata") or {}
+        if metadata:
+            lines.extend([
+                "## Metadata",
+                "```json",
+                json.dumps(metadata, ensure_ascii=False, indent=2),
+                "```",
+                "",
+            ])
+        return "\n".join(lines)
+
+    def sync_skill_file(self, node_id: str) -> Dict[str, Any]:
+        artifact = self.get_skill_artifact(node_id)
+        if not artifact:
+            raise ValueError(f"skill artifact not found: {node_id}")
+        slug = artifact.get("slug") or self._unique_skill_slug(_slugify(artifact.get("name") or node_id))
+        if not artifact.get("slug"):
+            self.update_skill_artifact(node_id, slug=slug)
+            artifact["slug"] = slug
+        rel_path = Path("skills") / slug / "SKILL.md"
+        abs_path = _SKILLS_DIR / slug / "SKILL.md"
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+        markdown = self.render_skill_markdown(artifact)
+        abs_path.write_text(markdown, encoding="utf-8", newline="\n")
+        file_hash = self._hash_text(markdown)
+        synced_at = _now_iso()
+        self.update_skill_artifact(
+            node_id,
+            file_path=str(rel_path).replace("\\", "/"),
+            file_hash=file_hash,
+            file_synced_at=synced_at,
+        )
+        return {
+            "node_id": node_id,
+            "file_path": str(rel_path).replace("\\", "/"),
+            "absolute_path": str(abs_path),
+            "file_hash": file_hash,
+            "file_synced_at": synced_at,
+        }
+
+    def sync_skill_files(self, statuses: Optional[List[str]] = None) -> Dict[str, Any]:
+        statuses = statuses or ["draft", "evolved", "approved"]
+        artifacts = self.list_skill_artifacts(statuses=statuses)
+        synced = []
+        for artifact in artifacts:
+            synced.append(self.sync_skill_file(artifact["node_id"]))
+        return {"synced": len(synced), "files": synced}
+
+    def score_skill_dry_run(self, artifact: Dict[str, Any], markdown: str = None) -> Dict[str, Any]:
+        markdown = markdown if markdown is not None else self.render_skill_markdown(artifact)
+        trigger_count = len(artifact.get("trigger_patterns") or [])
+        procedure_count = len(artifact.get("procedure") or [])
+        failure_count = len(artifact.get("failure_modes") or [])
+        source_count = len(artifact.get("source_node_ids") or [])
+        evidence_count = len(artifact.get("evidence_node_ids") or [])
+
+        mnemosyne = 0
+        mnemosyne += 20 if source_count >= 2 else 10 if source_count == 1 else 0
+        mnemosyne += 15 if trigger_count >= 2 else 8 if trigger_count == 1 else 0
+        mnemosyne += 15 if procedure_count >= 3 else 10 if procedure_count >= 2 else 0
+        mnemosyne += 15 if artifact.get("verification") else 0
+        mnemosyne += 10 if failure_count else 0
+        mnemosyne += 10 if artifact.get("risk_level") in RISK_LEVELS else 0
+        mnemosyne += 10 if evidence_count or source_count else 0
+        mnemosyne += 5 if len(markdown) >= 300 else 2
+
+        darwin = 0
+        darwin += 8 if "> Status:" in markdown and "> Node:" in markdown else 4
+        darwin += 15 if "## Procedure" in markdown and procedure_count >= 2 else 6
+        darwin += 10 if failure_count else 3
+        darwin += 7 if "## Verification" in markdown and artifact.get("verification") else 2
+        darwin += 15 if trigger_count and procedure_count >= 2 else 6
+        darwin += 5 if "## Evidence" in markdown else 0
+        darwin += 15 if markdown.count("## ") >= 6 else 8
+        darwin += 25 if procedure_count >= 3 and artifact.get("verification") else 12
+
+        mnemosyne_score = round(min(100, mnemosyne), 1)
+        darwin_score = round(min(100, darwin), 1)
+        final_score = round(0.6 * mnemosyne_score + 0.4 * darwin_score, 1)
+        return {
+            "mnemosyne_score": mnemosyne_score,
+            "darwin_score": darwin_score,
+            "final_score": final_score,
+            "breakdown": {
+                "trigger_count": trigger_count,
+                "procedure_count": procedure_count,
+                "failure_count": failure_count,
+                "source_count": source_count,
+                "evidence_count": evidence_count,
+                "markdown_chars": len(markdown),
+            },
+        }
+
+    def record_skill_evolution_run(self, skill_node_id: str, old_score: float = None,
+                                   new_score: float = None, mnemosyne_score: float = None,
+                                   darwin_score: float = None, status: str = "dry_run",
+                                   dimension: str = "m4", note: str = "",
+                                   eval_mode: str = "dry_run",
+                                   metadata: Dict[str, Any] = None) -> str:
+        run_id = str(uuid.uuid4())
+        conn = self._connect()
+        try:
+            conn.execute("""
+                INSERT INTO skill_evolution_runs(
+                    id, skill_node_id, old_score, new_score, mnemosyne_score,
+                    darwin_score, status, dimension, note, eval_mode, created_at, metadata
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                run_id, skill_node_id, old_score, new_score, mnemosyne_score,
+                darwin_score, status, dimension, note, eval_mode, _now_iso(),
+                json.dumps(metadata or {}, ensure_ascii=False),
+            ))
+            conn.commit()
+            return run_id
+        finally:
+            conn.close()
+
+    def approve_skill(self, node_id: str, approval_mode: str = "manual") -> Dict[str, Any]:
+        artifact = self.get_skill_artifact(node_id)
+        if not artifact:
+            raise ValueError(f"skill artifact not found: {node_id}")
+        if artifact.get("status") == "deprecated":
+            raise ValueError("deprecated skill cannot be approved")
+        if not self._has_active_edge(node_id, "verified_by"):
+            raise ValueError("skill must have at least one verified_by edge before approval")
+        inject_enabled = 0 if approval_mode == "auto_experimental" else 1
+        self.update_skill_artifact(
+            node_id,
+            status="approved",
+            review_status="approved",
+            approval_mode=approval_mode,
+            inject_enabled=inject_enabled,
+            trial_enabled=0,
+            requires_feedback=0,
+            approved_at=_now_iso(),
+        )
+        sync_info = self.sync_skill_file(node_id)
+        return {"skill_id": node_id, "status": "approved", "inject_enabled": bool(inject_enabled), "file": sync_info}
+
+    def skill_feedback(self, skill_id: str, rating: str, note: str = "",
+                       task_context: str = "", used_as: str = "trial",
+                       verification_result: str = "") -> Dict[str, Any]:
+        if rating not in {"helpful", "not_helpful", "misleading", "partially_useful"}:
+            raise ValueError(f"invalid rating: {rating}")
+        artifact = self.get_skill_artifact(skill_id)
+        if not artifact:
+            raise ValueError(f"skill artifact not found: {skill_id}")
+        content = (
+            f"Skill feedback for {skill_id}\n"
+            f"Rating: {rating}\n"
+            f"Used as: {used_as}\n"
+            f"Task context: {task_context}\n"
+            f"Verification result: {verification_result}\n"
+            f"Note: {note}"
+        )
+        feedback_id = self.add_node(
+            content=content,
+            node_type="skill_feedback",
+            task_type="skill_feedback",
+            tags=["skill_feedback", rating, used_as],
+            principle=f"Skill feedback: {rating}",
+        )
+        if rating == "helpful":
+            relation = "verified_by"
+        elif rating == "partially_useful":
+            relation = "needs_revision"
+        else:
+            relation = "fails_on"
+        self.add_edge(skill_id, feedback_id, relation, weight=0.9 if rating == "misleading" else 0.7, source="skill_feedback")
+
+        trial_count = (artifact.get("trial_count") or 0) + 1
+        trial_success = artifact.get("trial_success_count") or 0
+        trial_failure = artifact.get("trial_failure_count") or 0
+        updates = {"trial_count": trial_count, "last_trial_at": _now_iso()}
+        if rating == "helpful":
+            trial_success += 1
+            updates["trial_success_count"] = trial_success
+            if trial_success >= 3 and trial_failure == 0:
+                updates["promotion_candidate"] = 1
+        elif rating in ("not_helpful", "misleading"):
+            trial_failure += 1
+            updates["trial_failure_count"] = trial_failure
+            updates["needs_revision"] = 1
+            if rating == "misleading":
+                updates["trial_enabled"] = 0
+        else:
+            updates["needs_revision"] = 1
+        self.update_skill_artifact(skill_id, **updates)
+        return {"skill_id": skill_id, "feedback_id": feedback_id, "rating": rating, "relation": relation, "updates": updates}
+
+    def deprecate_skill(self, node_id: str, reason: str = "") -> Dict[str, Any]:
+        artifact = self.get_skill_artifact(node_id)
+        if not artifact:
+            raise ValueError(f"skill artifact not found: {node_id}")
+        metadata = artifact.get("metadata") or {}
+        if reason:
+            metadata["deprecated_reason"] = reason
+        self.update_skill_artifact(
+            node_id,
+            status="deprecated",
+            review_status="deprecated",
+            inject_enabled=0,
+            trial_enabled=0,
+            requires_feedback=0,
+            deprecated_at=_now_iso(),
+            metadata=metadata,
+        )
+        sync_info = self.sync_skill_file(node_id)
+        return {"skill_id": node_id, "status": "deprecated", "file": sync_info}
 
     # ── 批量操作（Dream Phase 使用）────────────────────────
 

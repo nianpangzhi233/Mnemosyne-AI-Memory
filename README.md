@@ -2,14 +2,14 @@
 
 # Mnemosyne
 
-**Give your AI a brain that forgets, recalls, and dreams.**
+**Give your AI a brain that forgets, recalls, dreams, and grows skills.**
 
-Bionic Experience & Memory System — Knowledge Graph + Vector Search + Predictive Memory + MCP
+Bionic Experience & Memory System — Knowledge Graph + Vector Search + Predictive Memory + Skill Memory + MCP
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![MCP Compatible](https://img.shields.io/badge/MCP-compatible-purple?style=flat-square)](https://modelcontextprotocol.io/)
-[![Version](https://img.shields.io/badge/version-6.1.0-black?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-7.0.0-black?style=flat-square)](CHANGELOG.md)
 [![Search](https://img.shields.io/badge/search-hybrid%20%7C%20precise%20%7C%20creative-orange?style=flat-square)](#knowledge-graph--multi-dimensional-retrieval)
 [![Memory](https://img.shields.io/badge/memory-predictive%20%2B%20dreaming-8A2BE2?style=flat-square)](#predictive-memory)
 
@@ -134,6 +134,32 @@ Runs automatically at 3 AM and noon daily. Or trigger manually:
 python scripts/graph_dream.py --full
 ```
 
+### Skill Memory System
+
+v7.0 lets mature experience clusters grow into reusable, governed skills:
+
+```text
+experience cluster -> embryo -> draft -> evolved -> approved -> injected skill
+```
+
+Key rules:
+
+| State | Meaning | Default injection |
+|-------|---------|-------------------|
+| `embryo` | Graph-discovered skill candidate | No |
+| `draft` | LLM-developed operational draft | No |
+| `evolved` | SKILL.md mirror + dry-run Darwin/Mnemosyne score | No, except explicit trial/experimental modes |
+| `approved` | Verified skill allowed in normal context | Yes |
+| `deprecated` | Soft-retired skill with evidence preserved | No |
+
+Approval is gated: a skill must have at least one `verified_by` edge before it can become `approved`.
+
+Generated skill mirrors live in:
+
+```text
+skills/<slug>/SKILL.md
+```
+
 ### Automatic Conversation Learning
 
 Scans opencode conversation logs, filters noise (chitchat, boilerplate, system warnings), and uses LLM to distill principles and summaries from valuable fragments — writing them into the memory graph.
@@ -163,7 +189,9 @@ Any AI tool that supports MCP (Model Context Protocol) can use Mnemosyne:
 }
 ```
 
-6 tools: `memory_write`, `memory_search`, `memory_inject`, `memory_detail`, `memory_update`, `memory_delete`
+Core memory tools: `memory_write`, `memory_search`, `memory_inject`, `memory_detail`, `memory_update`, `memory_delete`.
+
+Skill Memory tools: `memory_crystallize`, `memory_skill_search`, `memory_skill_inject`, `memory_skill_approve`, `memory_skill_feedback`, `memory_skill_deprecate`.
 
 `memory_search` supports `hybrid`, `precise`, `creative`, `vector`, and `keyword` modes, plus graph dimension and tag filters.
 
@@ -219,7 +247,7 @@ scripts/
 │   ├── embedder.py      # Embedding interface (Harrier/BGE-M3/Qwen)
 │   └── dream_pipeline.py # Fast/Slow dream pipeline
 ├── api/                 # FastAPI REST API + Swagger
-├── mcp_server/          # MCP Server (6 tools, stdio)
+├── mcp_server/          # MCP Server (memory + skill tools, stdio)
 ├── dashboard/           # Streamlit visualization dashboard
 ├── log_scanner/         # Conversation log scanner + filter + distill
 ├── graph_write.py       # Write CLI
@@ -309,6 +337,6 @@ Inspired by: [OpenViking](https://github.com/bytedance/OpenViking) (L0/L1/L2 lay
 
 <div align="center">
 
-**[v6.1 Release Notes →](docs/v6.1-release-notes.md)**
+**[v7.0 Skill Memory Blueprint →](docs/v7.0-skill-memory-system.md)** · **[Changelog →](CHANGELOG.md)**
 
 </div>

@@ -79,6 +79,82 @@ def init_db(db_path: str = None):
     cur.execute("CREATE INDEX IF NOT EXISTS idx_nodes_tier ON nodes(tier)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_nodes_vector ON nodes(vector) WHERE vector IS NOT NULL")
 
+    # ── v7.0 Skill artifacts ──
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS skill_artifacts (
+            node_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            slug TEXT UNIQUE,
+            status TEXT NOT NULL DEFAULT 'draft',
+            version TEXT DEFAULT '0.1.0',
+
+            trigger_patterns TEXT DEFAULT '[]',
+            preconditions TEXT DEFAULT '[]',
+            procedure TEXT DEFAULT '[]',
+            verification TEXT,
+            failure_modes TEXT DEFAULT '[]',
+
+            risk_level TEXT DEFAULT 'medium',
+            review_status TEXT DEFAULT 'draft',
+            approval_mode TEXT,
+            inject_enabled INTEGER DEFAULT 0,
+            trial_enabled INTEGER DEFAULT 0,
+            requires_feedback INTEGER DEFAULT 0,
+
+            mnemosyne_score REAL,
+            darwin_score REAL,
+            final_score REAL,
+
+            source_node_ids TEXT DEFAULT '[]',
+            evidence_node_ids TEXT DEFAULT '[]',
+
+            trial_count INTEGER DEFAULT 0,
+            trial_success_count INTEGER DEFAULT 0,
+            trial_failure_count INTEGER DEFAULT 0,
+            last_trial_at TEXT,
+            promotion_candidate INTEGER DEFAULT 0,
+            needs_revision INTEGER DEFAULT 0,
+
+            file_path TEXT,
+            file_hash TEXT,
+            file_synced_at TEXT,
+
+            created_at TEXT NOT NULL,
+            updated_at TEXT,
+            approved_at TEXT,
+            deprecated_at TEXT,
+
+            metadata TEXT DEFAULT '{}',
+
+            FOREIGN KEY(node_id) REFERENCES nodes(id)
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS skill_evolution_runs (
+            id TEXT PRIMARY KEY,
+            skill_node_id TEXT NOT NULL,
+            old_score REAL,
+            new_score REAL,
+            mnemosyne_score REAL,
+            darwin_score REAL,
+            status TEXT,
+            dimension TEXT,
+            note TEXT,
+            eval_mode TEXT,
+            created_at TEXT NOT NULL,
+            metadata TEXT DEFAULT '{}',
+            FOREIGN KEY(skill_node_id) REFERENCES nodes(id)
+        )
+    """)
+
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_skill_status ON skill_artifacts(status)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_skill_inject ON skill_artifacts(inject_enabled)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_skill_trial ON skill_artifacts(trial_enabled)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_skill_slug ON skill_artifacts(slug)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_skill_promotion ON skill_artifacts(promotion_candidate)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_skill_evolution_skill ON skill_evolution_runs(skill_node_id)")
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS undo_log (
             id TEXT PRIMARY KEY,

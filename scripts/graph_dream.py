@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Mnemosyne v6.1 — 做梦全流程（Fast/Slow 双流 + 三层仿生架构）
+"""Mnemosyne v7.0 — 做梦全流程（Fast/Slow 双流 + Skill Memory）
 
 通过 core 模块操作：
 - DreamPipeline + Fast/Slow 双流 Phase
 - v6.1: ContradictsPhase 增量检测（diff + keyword + LLM）
 - v6.1: SimilarToPhase 增量检测
 - v6.1: VectorIndex 快速路由 + Creative is_a 零跳
+- v7.0: SkillEmbryo/Development/MirrorEvolution phases
 - SQLiteStore + HarrierEmbedder 注入
 """
 
@@ -29,6 +30,7 @@ from core import (
     SQLiteStore, HarrierEmbedder,
     run_dream, DreamPipeline,
     SimilarToPhase, CausalPhase, ContradictsPhase, TransfersPhase,
+    SkillEmbryoPhase, SkillDevelopmentPhase, SkillMirrorEvolutionPhase,
     StrategyPhase, CovenantPhase, DecayPhase, SyncPhase,
 )
 

@@ -2,6 +2,31 @@
 
 All notable changes to Mnemosyne will be documented in this file.
 
+## [7.0.0] - 2026-05-09
+
+### Added
+- **Skill Memory System** — memory clusters can now crystallize into governed skill artifacts with lifecycle states: `embryo -> draft -> evolved -> approved -> deprecated`.
+- **Skill schema** — added `skill_artifacts` and `skill_evolution_runs` tables plus v6.1→v7.0 migration script.
+- **Skill emergence pipeline** — `SkillEmbryoPhase` discovers mature experience clusters from strong `similar_to` graph components.
+- **LLM skill development** — `SkillDevelopmentPhase` turns embryos into operational draft skills with trigger, precondition, procedure, verification, failure mode, risk, and evidence fields.
+- **SKILL.md mirrors** — generated skill files under `skills/<slug>/SKILL.md` with `file_hash` and `file_synced_at` tracking.
+- **Dry-run Darwin evolution** — `SkillMirrorEvolutionPhase` scores skills using Mnemosyne/Darwin rubric heuristics and records evolution runs.
+- **Skill governance MCP tools** — added `memory_crystallize`, `memory_skill_search`, `memory_skill_inject`, `memory_skill_approve`, `memory_skill_feedback`, and `memory_skill_deprecate`.
+- **Approval gate** — skills must have at least one `verified_by` edge before they can become `approved` and enter default injection.
+- **Feedback loop** — skill feedback writes `skill_feedback` nodes, creates `verified_by` / `fails_on` / `needs_revision` edges, and updates trial counters.
+
+### Changed
+- `memory_skill_search` now reads structured `skill_artifacts` instead of loose `nodes.metadata`.
+- `memory_skill_inject` defaults to `approved + inject_enabled + verified_by` only; draft/evolved skills require explicit `experimental` or `trial` mode.
+- Dream slow path now includes Skill phases after contradiction detection and before strategy generation.
+- MCP server version is now `7.0.0`.
+- `meta.json` version → 7.0.0.
+
+### Fixed
+- Skill file mirrors are synced after final status transitions so `SKILL.md` status matches DB state.
+- Numbered procedure steps no longer render as `1. 1.` when LLM output already includes numbering.
+- FTS5 special-character skill searches remain protected by vector fallback behavior.
+
 ## [6.1.0] - 2026-05-08
 
 ### Added

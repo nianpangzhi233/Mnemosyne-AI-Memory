@@ -16,6 +16,7 @@ from .dream_pipeline import (
     DreamPhase, DreamPipeline, run_dream,
     SnapshotPhase, AuditPhase, LLMReviewPhase,
     LogScanPhase, DistillPhase, SimilarToPhase, CausalPhase, ContradictsPhase, TransfersPhase,
+    SkillEmbryoPhase, SkillDevelopmentPhase, SkillMirrorEvolutionPhase,
     StrategyPhase, CovenantPhase, DecayPhase, SyncPhase,
 )
 
@@ -42,6 +43,9 @@ __all__ = [
     "CausalPhase",
     "ContradictsPhase",
     "TransfersPhase",
+    "SkillEmbryoPhase",
+    "SkillDevelopmentPhase",
+    "SkillMirrorEvolutionPhase",
     "StrategyPhase",
     "CovenantPhase",
     "DecayPhase",

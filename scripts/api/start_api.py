@@ -31,7 +31,7 @@ from core.embedder import HarrierEmbedder
 app = FastAPI(
     title="Mnemosyne API",
     description="Bionic memory system for AI agents — REST API",
-    version="6.1.0",
+    version="7.0.0",
 )
 
 _store: Optional[SQLiteStore] = None

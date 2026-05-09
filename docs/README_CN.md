@@ -2,14 +2,14 @@
 
 # Mnemosyne
 
-**给 AI 装一颗会忘、会想、会做梦的脑。**
+**给 AI 装一颗会忘、会想、会做梦、还会长技能的脑。**
 
-仿生经验与记忆系统 — 知识图谱 + 向量搜索 + 预测式记忆 + MCP 集成
+仿生经验与记忆系统 — 知识图谱 + 向量搜索 + 预测式记忆 + Skill Memory + MCP 集成
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![MCP Compatible](https://img.shields.io/badge/MCP-compatible-purple?style=flat-square)](https://modelcontextprotocol.io/)
-[![Version](https://img.shields.io/badge/version-6.1.0-black?style=flat-square)](../CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-7.0.0-black?style=flat-square)](../CHANGELOG.md)
 [![Search](https://img.shields.io/badge/search-hybrid%20%7C%20precise%20%7C%20creative-orange?style=flat-square)](#知识图谱--多维检索)
 [![Memory](https://img.shields.io/badge/memory-predictive%20%2B%20dreaming-8A2BE2?style=flat-square)](#预测式记忆)
 
@@ -134,6 +134,32 @@ v6.1 的 Dream 围绕三层仿生架构优化：
 python scripts/graph_dream.py --full
 ```
 
+### Skill Memory System（技能记忆）
+
+v7.0 让成熟经验簇长成可复用、可治理的 Skill：
+
+```text
+经验簇 -> 胚胎 -> 草稿 -> 进化态 -> 批准态 -> 安全注入
+```
+
+状态规则：
+
+| 状态 | 含义 | 默认注入 |
+|------|------|----------|
+| `embryo` | 图聚类发现的技能候选 | 否 |
+| `draft` | LLM 发育后的操作草稿 | 否 |
+| `evolved` | 已生成 SKILL.md，并通过干跑评分 | 否，仅显式 trial/experimental |
+| `approved` | 有验证证据，可默认注入 | 是 |
+| `deprecated` | 软废弃，保留证据链 | 否 |
+
+批准有硬门槛：Skill 必须至少有一条 `verified_by` 边，才能变成 `approved`。
+
+文件镜像位置：
+
+```text
+skills/<slug>/SKILL.md
+```
+
 ### 对话日志自动学习
 
 自动扫描 opencode 对话记录，过滤噪音（闲聊、套话、系统警告），用 LLM 从有价值片段中提炼 principle 和摘要，写入记忆图谱。
@@ -163,7 +189,9 @@ python scripts/graph_dream.py --full
 }
 ```
 
-6 个工具：`memory_write`（写入）、`memory_search`（搜索）、`memory_inject`（注入）、`memory_detail`（详情）、`memory_update`（更新）、`memory_delete`（删除）
+核心记忆工具：`memory_write`、`memory_search`、`memory_inject`、`memory_detail`、`memory_update`、`memory_delete`。
+
+Skill Memory 工具：`memory_crystallize`、`memory_skill_search`、`memory_skill_inject`、`memory_skill_approve`、`memory_skill_feedback`、`memory_skill_deprecate`。
 
 `memory_search` 支持 `hybrid`、`precise`、`creative`、`vector`、`keyword` 五种模式，也支持 graph dimension 和标签过滤。
 
@@ -219,7 +247,7 @@ scripts/
 │   ├── embedder.py      # 嵌入模型接口（Harrier/BGE-M3/Qwen）
 │   └── dream_pipeline.py # Fast/Slow 做梦流水线
 ├── api/                 # FastAPI REST API + Swagger
-├── mcp_server/          # MCP Server（6 个工具，stdio）
+├── mcp_server/          # MCP Server（记忆 + Skill 工具，stdio）
 ├── dashboard/           # Streamlit 可视化面板
 ├── log_scanner/         # 对话日志扫描 + 过滤 + 蒸馏
 ├── graph_write.py       # 写入 CLI
@@ -309,6 +337,6 @@ Mnemosyne 模拟人脑的几种关键记忆机制：
 
 <div align="center">
 
-**[v6.1 Release Notes →](v6.1-release-notes.md)**
+**[v7.0 Skill Memory Blueprint →](v7.0-skill-memory-system.md)** · **[Changelog →](../CHANGELOG.md)**
 
 </div>
