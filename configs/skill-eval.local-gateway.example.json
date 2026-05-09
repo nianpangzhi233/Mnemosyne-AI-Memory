@@ -1,0 +1,18 @@
+{
+  "runner": {
+    "type": "openai_compatible",
+    "endpoint": "http://127.0.0.1:8978/v1/chat/completions",
+    "model": "gpt-5-5",
+    "temperature": 0.1,
+    "timeout": 120,
+    "max_tokens": 650
+  },
+  "judge": {
+    "type": "openai_compatible",
+    "endpoint": "http://127.0.0.1:8978/v1/chat/completions",
+    "model": "gpt-5-5",
+    "temperature": 0.1,
+    "timeout": 120,
+    "max_tokens": 650
+  }
+}

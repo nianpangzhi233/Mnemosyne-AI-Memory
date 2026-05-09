@@ -119,6 +119,13 @@ def init_db(db_path: str = None):
             file_hash TEXT,
             file_synced_at TEXT,
 
+            latest_darwin_score REAL,
+            latest_mnemosyne_score REAL,
+            latest_live_test_delta REAL,
+            latest_eval_mode TEXT,
+            latest_decision TEXT,
+            latest_decision_reason TEXT,
+
             created_at TEXT NOT NULL,
             updated_at TEXT,
             approved_at TEXT,
@@ -154,6 +161,71 @@ def init_db(db_path: str = None):
     cur.execute("CREATE INDEX IF NOT EXISTS idx_skill_slug ON skill_artifacts(slug)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_skill_promotion ON skill_artifacts(promotion_candidate)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_skill_evolution_skill ON skill_evolution_runs(skill_node_id)")
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS skill_test_prompts (
+            id TEXT PRIMARY KEY,
+            skill_id TEXT NOT NULL,
+            prompt_id TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            expected TEXT,
+            tags TEXT DEFAULT '[]',
+            status TEXT DEFAULT 'active',
+            approved_by TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(skill_id, prompt_id),
+            FOREIGN KEY(skill_id) REFERENCES nodes(id)
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS skill_eval_runs (
+            id TEXT PRIMARY KEY,
+            skill_id TEXT NOT NULL,
+            prompt_id TEXT,
+            round INTEGER DEFAULT 0,
+            eval_mode TEXT NOT NULL,
+            baseline_output TEXT,
+            with_skill_output TEXT,
+            judge_output TEXT,
+            baseline_score REAL,
+            with_skill_score REAL,
+            live_test_delta REAL,
+            regression INTEGER DEFAULT 0,
+            darwin_score REAL,
+            mnemosyne_score REAL,
+            decision TEXT,
+            decision_reason TEXT,
+            file_hash_before TEXT,
+            file_hash_after TEXT,
+            kept INTEGER DEFAULT 0,
+            reverted INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(skill_id) REFERENCES nodes(id)
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS skill_mutations (
+            id TEXT PRIMARY KEY,
+            skill_id TEXT NOT NULL,
+            eval_run_id TEXT,
+            round INTEGER DEFAULT 0,
+            target_dimension TEXT,
+            reason TEXT,
+            patch_summary TEXT,
+            file_hash_before TEXT,
+            file_hash_after TEXT,
+            status TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(skill_id) REFERENCES nodes(id)
+        )
+    """)
+
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_skill_test_prompts_skill ON skill_test_prompts(skill_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_skill_eval_runs_skill ON skill_eval_runs(skill_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_skill_mutations_skill ON skill_mutations(skill_id)")
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS undo_log (

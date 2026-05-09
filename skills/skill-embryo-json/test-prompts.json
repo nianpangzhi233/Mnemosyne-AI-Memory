@@ -1,0 +1,42 @@
+[
+  {
+    "id": "gzip-json-real-1",
+    "prompt": "A Node.js API proxy receives garbled request bytes before JSON.parse fails. What should it check first?",
+    "expected": "Check Content-Encoding and gunzip before parsing JSON.",
+    "tags": [
+      "real",
+      "gzip"
+    ],
+    "status": "active"
+  },
+  {
+    "id": "encoding-family-real-2",
+    "prompt": "A proxy sees unreadable bytes and JSON.parse fails, but the request may use br or deflate instead of gzip. What diagnostic order should it follow?",
+    "expected": "Check Content-Encoding first; handle br/deflate/gzip decompression before charset decoding and JSON.parse.",
+    "tags": [
+      "real",
+      "encoding-family"
+    ],
+    "status": "active"
+  },
+  {
+    "id": "multi-encoding-real-3",
+    "prompt": "An upstream service sends Content-Encoding: gzip, br and the proxy gets unreadable bytes before JSON.parse. In what order should it decode and parse?",
+    "expected": "Decode Content-Encoding values in reverse order, then charset-decode, then JSON.parse.",
+    "tags": [
+      "real",
+      "multi-encoding"
+    ],
+    "status": "active"
+  },
+  {
+    "id": "proxy-stripped-real-4",
+    "prompt": "JSON.parse fails on non-textual request bytes, but Content-Encoding is missing after a reverse proxy. What should the proxy developer investigate before blaming the JSON schema?",
+    "expected": "Investigate stripped or already-applied Content-Encoding, double compression, body completeness, byte clues, and decode before parsing.",
+    "tags": [
+      "real",
+      "proxy"
+    ],
+    "status": "active"
+  }
+]

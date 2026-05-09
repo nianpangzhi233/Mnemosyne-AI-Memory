@@ -12,6 +12,11 @@ from .sqlite_store import SQLiteStore
 from .vector_index import VectorIndex
 from .embedder import AbstractEmbedder, BgeM3Embedder, HarrierEmbedder, QwenEmbedder
 from .task_runner import AbstractTaskRunner, APSchedulerRunner, CeleryRunner
+from .skill_evolution import SkillEvolutionRunner
+from .runners import (
+    OpenAICompatibleClient, OpenAICompatibleAgentRunner, OpenAICompatibleJudgeRunner,
+    ReplayAgentRunner, ReplayJudgeRunner,
+)
 from .dream_pipeline import (
     DreamPhase, DreamPipeline, run_dream,
     SnapshotPhase, AuditPhase, LLMReviewPhase,
@@ -31,6 +36,12 @@ __all__ = [
     "AbstractTaskRunner",
     "APSchedulerRunner",
     "CeleryRunner",
+    "SkillEvolutionRunner",
+    "OpenAICompatibleClient",
+    "OpenAICompatibleAgentRunner",
+    "OpenAICompatibleJudgeRunner",
+    "ReplayAgentRunner",
+    "ReplayJudgeRunner",
     "DreamPhase",
     "DreamPipeline",
     "run_dream",

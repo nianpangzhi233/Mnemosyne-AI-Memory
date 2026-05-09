@@ -31,7 +31,7 @@ _SKILLS_DIR = _PROJECT_ROOT / "skills"
 
 HALF_LIFE_BY_TYPE = {"experience": 30.0, "principle": 90.0, "strategy": 60.0, "correction": 60.0, "raw": 15.0}
 
-SKILL_STATUSES = {"embryo", "draft", "evolved", "approved", "deprecated"}
+SKILL_STATUSES = {"embryo", "draft", "tested", "evolved", "approved", "deprecated", "needs_revision", "rejected"}
 RISK_LEVELS = {"low", "medium", "high"}
 
 
@@ -375,6 +375,18 @@ class SQLiteStore(AbstractGraphStore):
         finally:
             conn.close()
 
+    def _count_active_edges(self, node_id: str, relation_type: str) -> int:
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            row = cur.execute("""
+                SELECT COUNT(*) FROM edges
+                WHERE from_id=? AND relation_type=? AND status='active'
+            """, (node_id, relation_type)).fetchone()
+            return int(row[0] if row else 0)
+        finally:
+            conn.close()
+
     def _unique_skill_slug(self, base_slug: str) -> str:
         conn = self._connect()
         try:
@@ -481,6 +493,8 @@ class SQLiteStore(AbstractGraphStore):
             "evidence_node_ids", "trial_count", "trial_success_count", "trial_failure_count",
             "last_trial_at", "promotion_candidate", "needs_revision", "file_path",
             "file_hash", "file_synced_at", "approved_at", "deprecated_at", "metadata",
+            "latest_darwin_score", "latest_mnemosyne_score", "latest_live_test_delta",
+            "latest_eval_mode", "latest_decision", "latest_decision_reason",
         }
         json_fields = {"trigger_patterns", "preconditions", "procedure", "failure_modes", "source_node_ids", "evidence_node_ids", "metadata"}
         updates = {k: v for k, v in fields.items() if k in allowed}
@@ -1171,14 +1185,333 @@ class SQLiteStore(AbstractGraphStore):
         finally:
             conn.close()
 
+    def add_skill_test_prompt(self, skill_id: str, prompt_id: str, prompt: str,
+                              expected: str = "", tags: List[str] = None,
+                              status: str = "active", approved_by: str = None) -> str:
+        if not self.get_skill_artifact(skill_id):
+            raise ValueError(f"skill artifact not found: {skill_id}")
+        row_id = str(uuid.uuid4())
+        now = _now_iso()
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO skill_test_prompts(
+                    id, skill_id, prompt_id, prompt, expected, tags, status,
+                    approved_by, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(skill_id, prompt_id) DO UPDATE SET
+                    prompt=excluded.prompt,
+                    expected=excluded.expected,
+                    tags=excluded.tags,
+                    status=excluded.status,
+                    approved_by=excluded.approved_by,
+                    updated_at=excluded.updated_at
+            """, (
+                row_id, skill_id, prompt_id, prompt, expected,
+                _json_dumps(tags or []), status, approved_by, now, now,
+            ))
+            conn.commit()
+            row = cur.execute(
+                "SELECT id FROM skill_test_prompts WHERE skill_id=? AND prompt_id=?",
+                (skill_id, prompt_id),
+            ).fetchone()
+            return row[0]
+        finally:
+            conn.close()
+
+    def list_skill_test_prompts(self, skill_id: str, active_only: bool = True) -> List[Dict[str, Any]]:
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            sql = "SELECT * FROM skill_test_prompts WHERE skill_id=?"
+            params = [skill_id]
+            if active_only:
+                sql += " AND status='active'"
+            sql += " ORDER BY created_at, prompt_id"
+            cur.execute(sql, params)
+            keys = [d[0] for d in cur.description]
+            rows = []
+            for row in cur.fetchall():
+                item = dict(zip(keys, row))
+                item["tags"] = _json_loads(item.get("tags"), [])
+                rows.append(item)
+            return rows
+        finally:
+            conn.close()
+
+    def sync_skill_test_prompts_file(self, skill_id: str) -> Dict[str, Any]:
+        artifact = self.get_skill_artifact(skill_id)
+        if not artifact:
+            raise ValueError(f"skill artifact not found: {skill_id}")
+        prompts = self.list_skill_test_prompts(skill_id, active_only=False)
+        slug = artifact.get("slug") or _slugify(artifact.get("name") or skill_id)
+        rel_path = Path("skills") / slug / "test-prompts.json"
+        abs_path = _PROJECT_ROOT / rel_path
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = [
+            {
+                "id": item.get("prompt_id"),
+                "prompt": item.get("prompt"),
+                "expected": item.get("expected") or "",
+                "tags": item.get("tags") or [],
+                "status": item.get("status") or "active",
+            }
+            for item in prompts
+        ]
+        text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+        abs_path.write_text(text, encoding="utf-8", newline="\n")
+        return {
+            "skill_id": skill_id,
+            "file_path": str(rel_path).replace("\\", "/"),
+            "absolute_path": str(abs_path),
+            "count": len(payload),
+            "file_hash": self._hash_text(text),
+        }
+
+    def record_skill_eval_run(self, skill_id: str, prompt_id: str = None,
+                              round: int = 0, eval_mode: str = "dry_run",
+                              baseline_output: str = None,
+                              with_skill_output: str = None,
+                              judge_output: Dict[str, Any] = None,
+                              baseline_score: float = None,
+                              with_skill_score: float = None,
+                              live_test_delta: float = None,
+                              regression: bool = False,
+                              darwin_score: float = None,
+                              mnemosyne_score: float = None,
+                              decision: str = None,
+                              decision_reason: str = None,
+                              file_hash_before: str = None,
+                              file_hash_after: str = None,
+                              kept: bool = False,
+                              reverted: bool = False) -> str:
+        if not self.get_skill_artifact(skill_id):
+            raise ValueError(f"skill artifact not found: {skill_id}")
+        run_id = str(uuid.uuid4())
+        conn = self._connect()
+        try:
+            conn.execute("""
+                INSERT INTO skill_eval_runs(
+                    id, skill_id, prompt_id, round, eval_mode, baseline_output,
+                    with_skill_output, judge_output, baseline_score, with_skill_score,
+                    live_test_delta, regression, darwin_score, mnemosyne_score,
+                    decision, decision_reason, file_hash_before, file_hash_after,
+                    kept, reverted, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                run_id, skill_id, prompt_id, round, eval_mode, baseline_output,
+                with_skill_output, json.dumps(judge_output or {}, ensure_ascii=False),
+                baseline_score, with_skill_score, live_test_delta, int(bool(regression)),
+                darwin_score, mnemosyne_score, decision, decision_reason,
+                file_hash_before, file_hash_after, int(bool(kept)), int(bool(reverted)), _now_iso(),
+            ))
+            conn.commit()
+            return run_id
+        finally:
+            conn.close()
+
+    def run_skill_darwin_evaluation(self, skill_id: str, runner: Any, judge: Any,
+                                    round_no: int = 0, eval_mode: str = "full_test") -> Dict[str, Any]:
+        from .skill_evolution import SkillEvolutionRunner
+        return SkillEvolutionRunner(self, runner, judge).run(skill_id, round_no=round_no, eval_mode=eval_mode)
+
+    def list_skill_eval_runs(self, skill_id: str) -> List[Dict[str, Any]]:
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM skill_eval_runs WHERE skill_id=? ORDER BY created_at", (skill_id,))
+            keys = [d[0] for d in cur.description]
+            rows = []
+            for row in cur.fetchall():
+                item = dict(zip(keys, row))
+                item["judge_output"] = _json_loads(item.get("judge_output"), {})
+                rows.append(item)
+            return rows
+        finally:
+            conn.close()
+
+    def update_skill_eval_run(self, run_id: str, **fields) -> bool:
+        allowed = {
+            "darwin_score", "mnemosyne_score", "decision", "decision_reason",
+            "file_hash_before", "file_hash_after", "kept", "reverted",
+        }
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return False
+        sets = ", ".join(f"{key}=?" for key in updates)
+        values = list(updates.values()) + [run_id]
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cur.execute(f"UPDATE skill_eval_runs SET {sets} WHERE id=?", values)
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+    def score_skill_mnemosyne(self, skill_id: str) -> Dict[str, Any]:
+        artifact = self.get_skill_artifact(skill_id)
+        if not artifact:
+            raise ValueError(f"skill artifact not found: {skill_id}")
+
+        source_ids = artifact.get("source_node_ids") or []
+        evidence_ids = artifact.get("evidence_node_ids") or []
+        trigger_count = len(artifact.get("trigger_patterns") or [])
+        verified_edges = self._count_active_edges(skill_id, "verified_by")
+        fails_edges = self._count_active_edges(skill_id, "fails_on")
+        revision_edges = self._count_active_edges(skill_id, "needs_revision")
+        trial_count = artifact.get("trial_count") or 0
+        success_count = artifact.get("trial_success_count") or 0
+        failure_count = artifact.get("trial_failure_count") or 0
+        risk_level = artifact.get("risk_level") or "medium"
+
+        evidence = min(100, len(source_ids) * 30 + len(evidence_ids) * 20)
+        cluster_quality = min(100, len(source_ids) * 25)
+        verification = min(100, verified_edges * 45 + success_count * 15)
+        trigger_precision = 80 if 1 <= trigger_count <= 3 else 65 if 4 <= trigger_count <= 6 else 0
+        feedback = 50 if trial_count == 0 else max(0, min(100, 50 + success_count * 20 - failure_count * 35))
+        safety = {"low": 100, "medium": 75, "high": 35}.get(risk_level, 40)
+
+        score = round(
+            evidence * 0.25 + cluster_quality * 0.20 + verification * 0.20 +
+            trigger_precision * 0.15 + feedback * 0.10 + safety * 0.10,
+            1,
+        )
+        hard_failures = []
+        if not source_ids:
+            hard_failures.append("missing_source_evidence")
+            score = min(score, 40)
+        if not evidence_ids:
+            hard_failures.append("missing_evidence_nodes")
+            score = min(score, 60)
+        if risk_level == "high" and artifact.get("approval_mode") != "manual_override":
+            hard_failures.append("high_risk_requires_manual_override")
+        if trigger_count == 0 or trigger_count > 8:
+            hard_failures.append("unsafe_trigger_precision")
+        if fails_edges:
+            hard_failures.append("unresolved_fails_on")
+        if revision_edges or artifact.get("needs_revision"):
+            score = min(score, 75)
+
+        passed = score >= 80 and not hard_failures
+        result = {
+            "mnemosyne_score": round(score, 1),
+            "passed": passed,
+            "hard_failures": hard_failures,
+            "breakdown": {
+                "evidence": evidence,
+                "cluster_quality": cluster_quality,
+                "verification": verification,
+                "trigger_precision": trigger_precision,
+                "feedback": feedback,
+                "safety": safety,
+                "source_count": len(source_ids),
+                "evidence_count": len(evidence_ids),
+                "verified_edges": verified_edges,
+                "fails_edges": fails_edges,
+                "revision_edges": revision_edges,
+            },
+        }
+        self.update_skill_artifact(skill_id, mnemosyne_score=result["mnemosyne_score"], latest_mnemosyne_score=result["mnemosyne_score"])
+        return result
+
+    def decide_skill_evolution(self, skill_id: str, darwin_result: Dict[str, Any] = None,
+                               mnemosyne_result: Dict[str, Any] = None) -> Dict[str, Any]:
+        artifact = self.get_skill_artifact(skill_id)
+        if not artifact:
+            raise ValueError(f"skill artifact not found: {skill_id}")
+        darwin_result = darwin_result or {}
+        mnemosyne_result = mnemosyne_result or self.score_skill_mnemosyne(skill_id)
+        darwin_score = darwin_result.get("darwin_score") or artifact.get("latest_darwin_score") or artifact.get("darwin_score") or 0
+        mnemosyne_score = mnemosyne_result.get("mnemosyne_score") or 0
+        live_delta = darwin_result.get("live_test_delta")
+        regression_count = darwin_result.get("regression_count", 0)
+        eval_mode = darwin_result.get("eval_mode", "unknown")
+        reasons = []
+
+        darwin_passed = bool(darwin_result.get("passed"))
+        if eval_mode == "dry_run":
+            darwin_passed = False
+            reasons.append("dry_run_cannot_evolve")
+        if live_delta is None or live_delta <= 0:
+            darwin_passed = False
+            reasons.append("missing_positive_live_test_delta")
+        if regression_count:
+            darwin_passed = False
+            reasons.append("regression_detected")
+        if float(darwin_score) < 80:
+            darwin_passed = False
+            reasons.append("darwin_score_below_threshold")
+
+        mnemosyne_passed = bool(mnemosyne_result.get("passed"))
+        if not mnemosyne_passed:
+            reasons.extend(mnemosyne_result.get("hard_failures") or ["mnemosyne_score_below_threshold"])
+
+        if darwin_passed and mnemosyne_passed:
+            decision = "evolved"
+            decision_reason = "Darwin live tests improved behavior and Mnemosyne graph governance passed."
+        elif artifact.get("status") == "deprecated":
+            decision = "deprecated"
+            decision_reason = "; ".join(dict.fromkeys(reasons)) or "deprecated skill cannot re-evolve automatically"
+        else:
+            decision = "needs_revision"
+            decision_reason = "; ".join(dict.fromkeys(reasons)) or "bilateral pass incomplete"
+
+        self.update_skill_artifact(
+            skill_id,
+            status=decision if decision in SKILL_STATUSES else artifact.get("status"),
+            review_status=decision,
+            darwin_score=darwin_score,
+            mnemosyne_score=mnemosyne_score,
+            final_score=round(0.5 * float(darwin_score) + 0.5 * float(mnemosyne_score), 1),
+            latest_darwin_score=darwin_score,
+            latest_mnemosyne_score=mnemosyne_score,
+            latest_live_test_delta=live_delta,
+            latest_eval_mode=eval_mode,
+            latest_decision=decision,
+            latest_decision_reason=decision_reason,
+        )
+        return {
+            "skill_id": skill_id,
+            "decision": decision,
+            "decision_reason": decision_reason,
+            "darwin_passed": darwin_passed,
+            "mnemosyne_passed": mnemosyne_passed,
+            "darwin_score": darwin_score,
+            "mnemosyne_score": mnemosyne_score,
+            "live_test_delta": live_delta,
+        }
+
     def approve_skill(self, node_id: str, approval_mode: str = "manual") -> Dict[str, Any]:
         artifact = self.get_skill_artifact(node_id)
         if not artifact:
             raise ValueError(f"skill artifact not found: {node_id}")
         if artifact.get("status") == "deprecated":
             raise ValueError("deprecated skill cannot be approved")
+        if artifact.get("status") != "evolved" and approval_mode != "manual_override":
+            raise ValueError("skill must be evolved before approval unless approval_mode='manual_override'")
         if not self._has_active_edge(node_id, "verified_by"):
             raise ValueError("skill must have at least one verified_by edge before approval")
+        file_path = artifact.get("file_path")
+        file_hash = artifact.get("file_hash")
+        if not file_path or not file_hash:
+            raise ValueError("skill must have a synced SKILL.md mirror before approval")
+        abs_path = _PROJECT_ROOT / file_path
+        if not abs_path.exists():
+            raise ValueError("synced SKILL.md mirror is missing")
+        actual_hash = self._hash_text(abs_path.read_text(encoding="utf-8"))
+        if actual_hash != file_hash:
+            raise ValueError("SKILL.md file hash does not match DB record")
+        if approval_mode != "manual_override":
+            if (artifact.get("latest_eval_mode") or "") == "dry_run":
+                raise ValueError("dry-run evaluation cannot be approved")
+            if (artifact.get("latest_live_test_delta") or 0) <= 0:
+                raise ValueError("skill needs positive live_test_delta before approval")
+            if (artifact.get("latest_darwin_score") or artifact.get("darwin_score") or 0) < 80:
+                raise ValueError("skill needs passing Darwin score before approval")
+            if (artifact.get("latest_mnemosyne_score") or artifact.get("mnemosyne_score") or 0) < 80:
+                raise ValueError("skill needs passing Mnemosyne score before approval")
         inject_enabled = 0 if approval_mode == "auto_experimental" else 1
         self.update_skill_artifact(
             node_id,

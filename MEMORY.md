@@ -90,13 +90,21 @@ v7.0 的 Predictive Validation 会在写入时**自动检测**：如果新经验
 
 ## 规则 5：Skill Memory 使用规则
 
-v7.0 新增 Skill Memory System。Skill 是高权重长期能力，不是普通记忆摘要。
+v7.1 使用双边 Skill Evolution。Skill 是高权重长期能力，不是普通记忆摘要。
 
 生命周期：
 
 ```
-embryo -> draft -> evolved -> approved -> deprecated
+embryo -> draft -> tested -> evolved -> approved -> deprecated
 ```
+
+`evolved` 的含义是双边通过：
+
+```
+Darwin live tests improved behavior AND Mnemosyne graph governance passed
+```
+
+禁止把 dry-run、字段完整度、单次局部胜利包装成 `evolved`。失败的真实评测必须允许把 Skill 降级为 `needs_revision`。
 
 默认注入只允许：
 
@@ -109,6 +117,7 @@ status=approved AND inject_enabled=true AND 存在 verified_by 边
 - 需要解决具体任务时，可先 `memory_skill_inject(context="当前任务")` 获取已批准 Skill。
 - 想探索未批准 Skill，必须显式用 `mode="experimental"`，并清楚标记其状态。
 - 低风险 `evolved` 试用必须走 `mode="trial"`，并在任务结束调用 `memory_skill_feedback`。
+- `verified_by` 必须来自真实 full_test、真实任务反馈或明确用户确认，禁止为了过线伪造证据。
 - 不要用 `memory_update` 手改 Skill 状态；批准必须走 `memory_skill_approve`，反馈必须走 `memory_skill_feedback`，废弃必须走 `memory_skill_deprecate`。
 
 Skill 工具：

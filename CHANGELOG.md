@@ -2,6 +2,28 @@
 
 All notable changes to Mnemosyne will be documented in this file.
 
+## [7.1.0-draft] - 2026-05-10
+
+### Added
+- **Bilateral Skill Evolution engine** — skills can now be evaluated through real `baseline` vs `with_skill` runs plus independent judge output, then combined with Mnemosyne graph-governance scoring.
+- **Runner abstraction** — added `AgentRunner` / `JudgeRunner` protocols, OpenAI-compatible runner adapters, and replay runners for deterministic tests.
+- **Thin skill evaluation CLI** — `scripts/evaluate_skill.py` builds configurable runners and delegates to `core.skill_evolution.SkillEvolutionRunner`; no model is hard-coded.
+- **Skill evaluation schema** — added `skill_test_prompts`, `skill_eval_runs`, and `skill_mutations`, plus latest bilateral decision fields on `skill_artifacts`.
+- **Real test prompt artifacts** — skills can mirror `test-prompts.json` beside `SKILL.md`.
+- **Bilateral design document** — added `docs/v7.1-bilateral-skill-evolution.md`.
+- **Regression tests** — added standard-library unittest coverage for dry-run blocking, bilateral gates, runner injection, real eval recording, downgrade behavior, and prompt file mirroring.
+
+### Changed
+- `SkillMirrorEvolutionPhase` is now a mirror/format-check phase only; dry-run scoring cannot promote `draft` to `evolved`.
+- `evolved` now means Darwin live tests improved behavior **and** Mnemosyne graph governance passed.
+- `approve_skill` now requires evolved status, verified evidence, synced `SKILL.md` hash, positive live-test delta, and passing Darwin/Mnemosyne scores unless explicitly overridden.
+- `SQLiteStore.run_skill_darwin_evaluation` delegates to the provider-agnostic `SkillEvolutionRunner`.
+- `skills/skill-embryo-json` evolved through real four-prompt evaluation and now includes `test-prompts.json`.
+
+### Fixed
+- Existing `evolved` skills are downgraded to `needs_revision` when a later bilateral evaluation fails.
+- `SKILL.md` mirrors are synced after bilateral decisions so file status matches DB state.
+
 ## [7.0.0] - 2026-05-09
 
 ### Added

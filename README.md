@@ -136,10 +136,10 @@ python scripts/graph_dream.py --full
 
 ### Skill Memory System
 
-v7.0 lets mature experience clusters grow into reusable, governed skills:
+v7.1 lets mature experience clusters grow into reusable, governed skills through bilateral evolution:
 
 ```text
-experience cluster -> embryo -> draft -> evolved -> approved -> injected skill
+experience cluster -> embryo -> draft -> tested -> evolved -> approved -> injected skill
 ```
 
 Key rules:
@@ -148,16 +148,30 @@ Key rules:
 |-------|---------|-------------------|
 | `embryo` | Graph-discovered skill candidate | No |
 | `draft` | LLM-developed operational draft | No |
-| `evolved` | SKILL.md mirror + dry-run Darwin/Mnemosyne score | No, except explicit trial/experimental modes |
+| `tested` | Baseline and with-skill runs recorded with judge output | No |
+| `evolved` | Darwin live tests improved behavior and Mnemosyne graph governance passed | No, except explicit trial/experimental modes |
 | `approved` | Verified skill allowed in normal context | Yes |
 | `deprecated` | Soft-retired skill with evidence preserved | No |
 
-Approval is gated: a skill must have at least one `verified_by` edge before it can become `approved`.
+Dry-run scoring cannot produce `evolved`. Approval is gated: a skill must have passing bilateral evidence, a synced `SKILL.md` hash, and at least one `verified_by` edge before it can become `approved`.
+
+Bilateral evolution means:
+
+```text
+Darwin side: baseline vs with-skill live tests prove behavior improved.
+Mnemosyne side: graph evidence, feedback, trigger precision, and safety prove the skill is trustworthy.
+```
 
 Generated skill mirrors live in:
 
 ```text
 skills/<slug>/SKILL.md
+```
+
+Skill test prompts live beside the skill:
+
+```text
+skills/<slug>/test-prompts.json
 ```
 
 ### Automatic Conversation Learning
@@ -218,7 +232,14 @@ python scripts/graph_query.py --vector-search "keyword" --layer L0 --top 5
 
 # Health check
 python scripts/graph_audit.py
+
+# Evaluate a skill with an OpenAI-compatible runner/judge
+python scripts/evaluate_skill.py \
+  --skill-id <skill-node-id> \
+  --config configs/skill-eval.local-gateway.example.json
 ```
+
+`evaluate_skill.py` is a thin adapter. The reusable flow lives in `core.skill_evolution.SkillEvolutionRunner`, and provider-specific execution lives in `core.runners`. Do not put real API keys in example configs; use environment variables such as `MNEMOSYNE_LLM_API_KEY` for private endpoints.
 
 ---
 

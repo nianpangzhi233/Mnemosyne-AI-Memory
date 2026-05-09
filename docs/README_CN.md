@@ -136,10 +136,10 @@ python scripts/graph_dream.py --full
 
 ### Skill Memory System（技能记忆）
 
-v7.0 让成熟经验簇长成可复用、可治理的 Skill：
+v7.1 让成熟经验簇通过双边进化长成可复用、可治理的 Skill：
 
 ```text
-经验簇 -> 胚胎 -> 草稿 -> 进化态 -> 批准态 -> 安全注入
+经验簇 -> 胚胎 -> 草稿 -> 已测试 -> 进化态 -> 批准态 -> 安全注入
 ```
 
 状态规则：
@@ -148,16 +148,30 @@ v7.0 让成熟经验簇长成可复用、可治理的 Skill：
 |------|------|----------|
 | `embryo` | 图聚类发现的技能候选 | 否 |
 | `draft` | LLM 发育后的操作草稿 | 否 |
-| `evolved` | 已生成 SKILL.md，并通过干跑评分 | 否，仅显式 trial/experimental |
+| `tested` | 已记录 baseline / with-skill / judge 输出 | 否 |
+| `evolved` | Darwin 实测证明更好，且 Mnemosyne 图谱治理通过 | 否，仅显式 trial/experimental |
 | `approved` | 有验证证据，可默认注入 | 是 |
 | `deprecated` | 软废弃，保留证据链 | 否 |
 
-批准有硬门槛：Skill 必须至少有一条 `verified_by` 边，才能变成 `approved`。
+dry-run 不能产生 `evolved`。批准有硬门槛：Skill 必须有双边通过证据、同步的 `SKILL.md` hash，且至少有一条 `verified_by` 边，才能变成 `approved`。
+
+双边进化指：
+
+```text
+Darwin 侧：baseline vs with-skill 实测证明 Agent 表现提升。
+Mnemosyne 侧：图谱证据、反馈、触发精度和风险控制证明 Skill 可信。
+```
 
 文件镜像位置：
 
 ```text
 skills/<slug>/SKILL.md
+```
+
+测试题文件位置：
+
+```text
+skills/<slug>/test-prompts.json
 ```
 
 ### 对话日志自动学习
@@ -218,7 +232,14 @@ python scripts/graph_query.py --vector-search "关键词" --layer L0 --top 5
 
 # 健康检查
 python scripts/graph_audit.py
+
+# 用 OpenAI-compatible runner/judge 评测 Skill
+python scripts/evaluate_skill.py \
+  --skill-id <skill-node-id> \
+  --config configs/skill-eval.local-gateway.example.json
 ```
+
+`evaluate_skill.py` 只是薄适配器。可复用流程在 `core.skill_evolution.SkillEvolutionRunner`，模型/网关适配在 `core.runners`。示例配置不要写真实密钥，私有 API 请使用 `MNEMOSYNE_LLM_API_KEY` 等环境变量。
 
 ---
 

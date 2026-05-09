@@ -780,23 +780,28 @@ class SkillDevelopmentPhase(DreamPhase):
 
 
 class SkillMirrorEvolutionPhase(DreamPhase):
-    """Mirror skills to SKILL.md and record dry-run Darwin evolution scores."""
+    """Mirror skills and record dry-run scores without promoting to evolved.
 
-    EVOLVE_THRESHOLD = 80.0
+    v7.1 rule: static or dry-run scoring is a format check only. A skill can
+    become evolved only after bilateral Darwin live tests and Mnemosyne graph
+    governance both pass.
+    """
+
+    FORMAT_CHECK_THRESHOLD = 80.0
 
     @property
     def name(self) -> str:
-        return "技能镜像与Darwin干跑 SkillMirrorEvolutionPhase"
+        return "技能镜像与格式预检 SkillMirrorEvolutionPhase"
 
     def run(self, store: AbstractGraphStore, embedder: AbstractEmbedder) -> dict:
         required = ["list_skill_artifacts", "sync_skill_file", "score_skill_dry_run", "record_skill_evolution_run", "update_skill_artifact"]
         if not all(hasattr(store, attr) for attr in required):
             return {"synced": 0, "scored": 0, "evolved": 0, "skipped": "skill mirror API unavailable"}
 
-        artifacts = store.list_skill_artifacts(statuses=["draft", "evolved", "approved"])
+        artifacts = store.list_skill_artifacts(statuses=["draft", "tested", "evolved", "approved", "needs_revision"])
         synced = []
         scored = []
-        evolved = []
+        blocked_promotions = []
         for artifact in artifacts:
             refreshed = store.get_skill_artifact(artifact["node_id"]) if hasattr(store, "get_skill_artifact") else artifact
             markdown = store.render_skill_markdown(refreshed)
@@ -804,10 +809,9 @@ class SkillMirrorEvolutionPhase(DreamPhase):
             old_score = refreshed.get("final_score")
             status = "scored"
             new_status = refreshed.get("status")
-            if new_status == "draft" and score["final_score"] >= self.EVOLVE_THRESHOLD:
-                new_status = "evolved"
-                status = "evolved"
-                evolved.append(refreshed["node_id"])
+            if new_status == "draft" and score["final_score"] >= self.FORMAT_CHECK_THRESHOLD:
+                status = "format_checked"
+                blocked_promotions.append(refreshed["node_id"])
 
             store.update_skill_artifact(
                 refreshed["node_id"],
@@ -826,7 +830,7 @@ class SkillMirrorEvolutionPhase(DreamPhase):
                 darwin_score=score["darwin_score"],
                 status=status,
                 dimension="m4_dry_run",
-                note="SKILL.md mirror + dry-run Darwin/Mnemosyne score",
+                note="SKILL.md mirror + dry-run format score; v7.1 blocks dry-run promotion to evolved",
                 eval_mode="dry_run",
                 metadata={"breakdown": score["breakdown"], "file_hash": sync_info["file_hash"]},
             )
@@ -836,8 +840,8 @@ class SkillMirrorEvolutionPhase(DreamPhase):
         return {
             "synced": len(synced),
             "scored": len(scored),
-            "evolved": len(evolved),
-            "evolved_skill_ids": evolved,
+            "evolved": 0,
+            "blocked_dry_run_promotions": blocked_promotions,
             "files": synced,
             "scores": scored,
         }
