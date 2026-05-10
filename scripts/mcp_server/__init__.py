@@ -97,9 +97,15 @@ def _tools_list():
                     },
                     "task_type": {
                         "type": "string",
-                        "description": "Task category for this memory (e.g. 'api_proxy', 'memory_system', 'testing'). "
-                                       "If not provided, the system will auto-resolve from content and project. "
-                                       "LLM callers should provide this when the category is clear from context."
+                        "description": "REQUIRED when the task category is identifiable. "
+                                       "Classify this memory into a task category. "
+                                       "Known categories: api_proxy, memory_system, cli_tool, coding, testing, "
+                                       "debugging, visual_design, workflow, llm_integration, electron_dev, "
+                                       "skill_memory, skill_feedback. "
+                                       "If none fits, invent a new snake_case category name. "
+                                       "Examples: 'Fixed gzip parsing in API gateway' -> api_proxy. "
+                                       "'torch DLL crash on Windows' -> debugging. "
+                                       "'Added dream scanner dedup' -> memory_system."
                     }
                 },
                 "required": ["content"]

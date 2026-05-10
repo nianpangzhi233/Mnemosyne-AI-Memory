@@ -38,6 +38,20 @@ memory_write(
 )
 ```
 
+### v7.1 task_type 分类（必须填）
+
+每次写入记忆时，**必须填写 `task_type` 字段**，将经验归类到技术领域。
+已知类型：`api_proxy`、`memory_system`、`cli_tool`、`coding`、`testing`、`debugging`、`visual_design`、`workflow`、`llm_integration`、`electron_dev`、`skill_memory`、`skill_feedback`。
+如果没有合适的，自己造一个 snake_case 的新类型名。
+
+```
+memory_write(
+  content="gzip body must be decompressed before JSON.parse",
+  task_type="api_proxy",
+  principle="check Content-Encoding first"
+)
+```
+
 这会启用**预测性记忆**——下次遇到相同 precondition 时，memory_inject 会自动预警。
 
 ### 不要写入
