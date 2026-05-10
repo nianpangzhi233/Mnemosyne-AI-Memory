@@ -161,17 +161,16 @@ class SimilarToPhase(DreamPhase):
         last_dream = self._get_last_dream_time(store)
         if last_dream:
             new_nodes = store.query_nodes(
-                "created_at > ? AND task_type IS NOT NULL AND type='experience'",
+                "created_at > ? AND type='experience'",
                 (last_dream,)
             )
         else:
-            new_nodes = store.query_nodes("task_type IS NOT NULL AND type='experience'")
+            new_nodes = store.query_nodes("type='experience'")
 
         if not new_nodes:
             return {"added": 0, "new_nodes": 0}
 
         all_nodes = store.bulk_get_vectors()
-        all_nodes = [n for n in all_nodes if n.get("task_type") is not None]
         existing = store.bulk_get_edge_pairs("similar_to")
 
         edges_to_add = []
@@ -1089,7 +1088,12 @@ class LogScanPhase(DreamPhase):
         written = 0
         for frag in fragments:
             content = frag["content"]
-            project = frag.get("session_title", "")[:30] or None
+            project = frag.get("directory", "") or frag.get("session_title", "")[:30] or None
+            if project:
+                from pathlib import PurePath
+                project = PurePath(project).name or project
+                if len(project) > 50:
+                    project = project[:50]
             try:
                 store.add_node(content=content, node_type="raw",
                                project=project, principle=None)
@@ -1149,16 +1153,22 @@ class DistillPhase(DreamPhase):
             "## Output Format\n"
             "Respond with EXACTLY this JSON structure, nothing else:\n\n"
             "If worth keeping:\n"
-            '{"keep": true, "principle": "concise one-line principle that generalizes the lesson", "summary": "1-2 sentence factual summary of what happened and what was learned"}\n\n'
+            '{"keep": true, "principle": "concise one-line principle", "summary": "1-2 sentence summary", '
+            '"task_type": "category tag like api_proxy, memory_system, coding, testing, debugging, visual_design, '
+            'cli_tool, workflow, llm_integration, skill_memory, skill_feedback, or a new snake_case category"}\n\n'
             "If not worth keeping:\n"
             '{"keep": false}\n\n'
             "## Examples\n\n"
             "Fragment: [User] gzip请求体解析失败 [AI] 加了gunzip解压 [Tool:bash] tests passed\n"
-            '{"keep": true, "principle": "Check Content-Encoding before parsing request body", "summary": "Fixed gzip-compressed request body parsing by adding decompression step before JSON.parse"}\n\n'
+            '{"keep": true, "principle": "Check Content-Encoding before parsing request body", '
+            '"summary": "Fixed gzip-compressed request body parsing by adding decompression step before JSON.parse", '
+            '"task_type": "api_proxy"}\n\n'
             "Fragment: [User] 你好 [AI] 你好！有什么可以帮你的？ [User] 谢谢\n"
             '{"keep": false}\n\n'
             "Fragment: [User] 我喜欢函数式风格不要class [AI] 收到 [Tool:edit] refactored\n"
-            '{"keep": true, "principle": "User prefers functional style over classes", "summary": "User stated preference for functional programming style, avoid class-based patterns"}\n\n'
+            '{"keep": true, "principle": "User prefers functional style over classes", '
+            '"summary": "User stated preference for functional programming style, avoid class-based patterns", '
+            '"task_type": "coding"}\n\n'
             "Now judge the following fragment:"
         )
 
@@ -1192,16 +1202,23 @@ class DistillPhase(DreamPhase):
             if parsed.get("keep"):
                 principle = parsed.get("principle", "")
                 summary = parsed.get("summary", "")
+                task_type = parsed.get("task_type", "")
 
                 abstract = (principle or content[:150])[:150]
                 overview = (summary or content[:600])[:600]
 
                 conn = store._connect()
                 try:
-                    conn.execute(
-                        "UPDATE nodes SET type='experience', principle=?, abstract=?, overview=? WHERE id=?",
-                        (principle, abstract, overview, node["id"]),
-                    )
+                    if task_type:
+                        conn.execute(
+                            "UPDATE nodes SET type='experience', principle=?, abstract=?, overview=?, task_type=? WHERE id=?",
+                            (principle, abstract, overview, task_type, node["id"]),
+                        )
+                    else:
+                        conn.execute(
+                            "UPDATE nodes SET type='experience', principle=?, abstract=?, overview=? WHERE id=?",
+                            (principle, abstract, overview, node["id"]),
+                        )
                     conn.commit()
                 finally:
                     conn.close()

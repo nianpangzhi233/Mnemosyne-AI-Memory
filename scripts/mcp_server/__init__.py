@@ -94,6 +94,12 @@ def _tools_list():
                     "contradicts": {
                         "type": "string",
                         "description": "Node ID being corrected (optional, for corrections)"
+                    },
+                    "task_type": {
+                        "type": "string",
+                        "description": "Task category for this memory (e.g. 'api_proxy', 'memory_system', 'testing'). "
+                                       "If not provided, the system will auto-resolve from content and project. "
+                                       "LLM callers should provide this when the category is clear from context."
                     }
                 },
                 "required": ["content"]
@@ -302,12 +308,13 @@ def _handle_write(args):
     precondition = args.get("precondition")
     predicted_outcome = args.get("predicted_outcome")
     context_tags = args.get("context_tags")
+    task_type = args.get("task_type")
 
     node_id = store.add_node(
         content=content, node_type=node_type,
         principle=principle, project=project, tags=tags,
         precondition=precondition, predicted_outcome=predicted_outcome,
-        context_tags=context_tags,
+        context_tags=context_tags, task_type=task_type,
     )
 
     contradicts_id = args.get("contradicts")

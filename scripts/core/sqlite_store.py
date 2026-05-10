@@ -22,7 +22,7 @@ import numpy as np
 import sqlite3
 
 from .graph_store import AbstractGraphStore
-from .embedder import BgeM3Embedder
+from .embedder import AbstractEmbedder, HarrierEmbedder
 
 # 默认 db_path: scripts/core/../../graph.db → 项目根目录下
 _DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent.parent / "graph.db"
@@ -62,6 +62,16 @@ def _slugify(name: str) -> str:
     return hashlib.sha1(name.encode("utf-8")).hexdigest()[:12]
 
 
+_PROJECT_MAP = {
+    "memory-evolution": "memory_system",
+    "growth-tree": "visual_design",
+    "local-api-gateway": "api_proxy",
+    "workbuddy": "workflow",
+}
+
+_TASK_TYPE_SIMILARITY_THRESHOLD = 0.55
+
+
 class SQLiteStore(AbstractGraphStore):
     """基于 SQLite + sqlite3 的图存储实现
 
@@ -71,9 +81,10 @@ class SQLiteStore(AbstractGraphStore):
 
     def __init__(self, db_path: Optional[str] = None, embedder=None):
         self._db_path = db_path or str(_DEFAULT_DB_PATH)
-        self._embedder = embedder or BgeM3Embedder()
+        self._embedder = embedder or HarrierEmbedder()
         self._vector_index = None  # lazy init
         self._precondition_index = None  # lazy init
+        self._task_type_index = None  # lazy init
 
     _MAX_ABSTRACT = 150
     _MAX_OVERVIEW = 600
@@ -100,6 +111,119 @@ class SQLiteStore(AbstractGraphStore):
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self._db_path)
 
+    def _ensure_task_type_index(self):
+        if self._task_type_index is not None:
+            return
+        from .vector_index import VectorIndex
+        self._task_type_index = VectorIndex()
+
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+
+            registered_raw = cur.execute(
+                "SELECT value FROM meta WHERE key='registered_task_types'"
+            ).fetchone()
+            if not registered_raw:
+                return
+            registered = set()
+            try:
+                registered = set(json.loads(registered_raw[0]))
+            except (json.JSONDecodeError, TypeError):
+                return
+
+            for ttype in registered:
+                representative_contents = []
+                cur.execute(
+                    "SELECT content, principle FROM nodes WHERE task_type=? AND type='experience' LIMIT 10",
+                    (ttype,)
+                )
+                for row in cur.fetchall():
+                    text = row[0] or ""
+                    if row[1]:
+                        text += " " + row[1]
+                    if text.strip():
+                        representative_contents.append(text)
+
+                if representative_contents:
+                    combined = " ".join(representative_contents)[:500]
+                    vec = self._embedder.encode(combined)
+                    self._task_type_index.add(ttype, vec)
+        finally:
+            conn.close()
+
+    def _register_task_type(self, ttype: str):
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            registered_raw = cur.execute(
+                "SELECT value FROM meta WHERE key='registered_task_types'"
+            ).fetchone()
+            registered = set()
+            if registered_raw:
+                try:
+                    registered = set(json.loads(registered_raw[0]))
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            if ttype not in registered:
+                registered.add(ttype)
+                cur.execute(
+                    "INSERT OR REPLACE INTO meta(key, value) VALUES('registered_task_types', ?)",
+                    (json.dumps(sorted(registered), ensure_ascii=False),)
+                )
+                conn.commit()
+        finally:
+            conn.close()
+
+    def _resolve_task_type(self, content: str, task_type: Optional[str],
+                           project: Optional[str] = None) -> Optional[str]:
+        if task_type:
+            self._register_task_type(task_type)
+            return task_type
+
+        if project:
+            slug = _slugify(project)
+            direct = _PROJECT_MAP.get(slug)
+            if direct:
+                return direct
+            conn = self._connect()
+            try:
+                cur = conn.cursor()
+                registered_raw = cur.execute(
+                    "SELECT value FROM meta WHERE key='registered_task_types'"
+                ).fetchone()
+                if registered_raw:
+                    try:
+                        registered = set(json.loads(registered_raw[0]))
+                        for existing in registered:
+                            if slug == existing or slug.startswith(existing) or existing.startswith(slug):
+                                return existing
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            finally:
+                conn.close()
+
+        if not content or len(content.strip()) < 10:
+            if project:
+                new_type = _slugify(project)
+                self._register_task_type(new_type)
+                return new_type
+            return None
+
+        self._ensure_task_type_index()
+        if self._task_type_index is not None and self._task_type_index.count > 0:
+            vec = self._embedder.encode(content)
+            results = self._task_type_index.search(vec, top=1)
+            if results and results[0][1] >= _TASK_TYPE_SIMILARITY_THRESHOLD:
+                return results[0][0]
+
+        if project:
+            new_type = _slugify(project)
+            self._register_task_type(new_type)
+            return new_type
+
+        return None
+
     # ── 节点操作 ──────────────────────────────────────────
 
     def add_node(self, content: str, node_type: str = "experience",
@@ -108,6 +232,7 @@ class SQLiteStore(AbstractGraphStore):
                  precondition: Optional[str] = None,
                  predicted_outcome: Optional[str] = None,
                  **kwargs) -> str:
+        task_type = self._resolve_task_type(content, task_type, project)
         conn = self._connect()
         try:
             cur = conn.cursor()
