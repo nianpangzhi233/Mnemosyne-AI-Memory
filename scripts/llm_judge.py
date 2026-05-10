@@ -35,7 +35,7 @@ def load_config() -> dict:
 
 
 def _call_llm(endpoint: str, model: str, system: str, user: str,
-              timeout: int = 120) -> Optional[str]:
+              timeout: int = 30) -> Optional[str]:
     payload_dict = {
         "model": model,
         "messages": [
@@ -69,8 +69,8 @@ def _call_llm(endpoint: str, model: str, system: str, user: str,
                 return content.strip() if content else None
         except urllib.error.HTTPError as e:
             if e.code in (400, 429, 503) and attempt < max_retries - 1:
-                wait = (attempt + 1) * 3
-                print(f"  [llm_judge] {e.code}, 重试 {attempt+1}/{max_retries} ({wait}s)...", file=sys.stderr)
+                wait = 1
+                print(f"  [llm_judge] {e.code}, retry {attempt+1}/{max_retries}...", file=sys.stderr)
                 import time
                 time.sleep(wait)
                 continue

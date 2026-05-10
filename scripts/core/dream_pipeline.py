@@ -1191,7 +1191,6 @@ class DistillPhase(DreamPhase):
 
             if not result:
                 errors += 1
-                time.sleep(2)
                 continue
 
             parsed = _extract_json(result)
@@ -1232,8 +1231,6 @@ class DistillPhase(DreamPhase):
                 finally:
                     conn.close()
                 discarded += 1
-
-            time.sleep(3)
 
         return {"distilled": distilled, "discarded": discarded, "errors": errors, "total_raw": len(raw_nodes)}
 
