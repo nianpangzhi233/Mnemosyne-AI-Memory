@@ -228,6 +228,27 @@ def init_db(db_path: str = None):
     cur.execute("CREATE INDEX IF NOT EXISTS idx_skill_mutations_skill ON skill_mutations(skill_id)")
 
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS skill_usage_feedback (
+            id TEXT PRIMARY KEY,
+            skill_id TEXT NOT NULL,
+            feedback_node_id TEXT,
+            task_context TEXT,
+            used_as TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            rating TEXT,
+            verification_result TEXT,
+            note TEXT,
+            created_prompt_id TEXT,
+            audit_required INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(skill_id) REFERENCES nodes(id),
+            FOREIGN KEY(feedback_node_id) REFERENCES nodes(id)
+        )
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_skill_usage_feedback_skill ON skill_usage_feedback(skill_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_skill_usage_feedback_outcome ON skill_usage_feedback(outcome)")
+
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS undo_log (
             id TEXT PRIMARY KEY,
             operation TEXT NOT NULL,

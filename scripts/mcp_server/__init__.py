@@ -265,12 +265,16 @@ def _tools_list():
                 "properties": {
                     "skill_id": {"type": "string", "description": "Skill node ID"},
                     "rating": {"type": "string", "enum": ["helpful", "not_helpful", "misleading", "partially_useful"]},
+                    "outcome": {"type": "string", "enum": ["success", "partial", "miss", "misleading", "trigger_mismatch"]},
                     "note": {"type": "string"},
                     "task_context": {"type": "string"},
                     "used_as": {"type": "string", "enum": ["approved", "trial", "experimental"], "default": "trial"},
-                    "verification_result": {"type": "string"}
+                    "verification_result": {"type": "string"},
+                    "create_test_prompt": {"type": "boolean", "default": False},
+                    "expected": {"type": "string"},
+                    "prompt_tags": {"type": "array", "items": {"type": "string"}}
                 },
-                "required": ["skill_id", "rating"]
+                "required": ["skill_id"]
             }
         },
         {
@@ -450,11 +454,15 @@ def _handle_skill_feedback(args):
     store = _get_store()
     result = store.skill_feedback(
         args["skill_id"],
-        args["rating"],
+        args.get("rating"),
         note=args.get("note", ""),
         task_context=args.get("task_context", ""),
         used_as=args.get("used_as", "trial"),
         verification_result=args.get("verification_result", ""),
+        outcome=args.get("outcome"),
+        create_test_prompt=args.get("create_test_prompt", False),
+        expected=args.get("expected", ""),
+        prompt_tags=args.get("prompt_tags"),
     )
     return _clean_surrogates(json.dumps(result, ensure_ascii=False, indent=2))
 

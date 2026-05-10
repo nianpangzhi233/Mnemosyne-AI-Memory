@@ -2,6 +2,25 @@
 
 All notable changes to Mnemosyne will be documented in this file.
 
+## [7.2.0-draft] - 2026-05-10
+
+### Added
+- **Skill Evidence Flow** — added structured `skill_usage_feedback` records, outcome-based feedback, and usage-loop metadata for governed skill learning.
+- **Failure prompt creation** — `memory_skill_feedback` can now turn reproducible failures into `test-prompts.json` entries via `create_test_prompt`.
+- **Approved skill audits** — added store-level audit helpers for sampling and failure-triggered review, including downgrade/deprecation decisions.
+- **v7.2 migration** — added `scripts/migrate_v71_to_v72.py` and schema support for skill usage feedback.
+- **Evidence-flow docs** — added v7.2 design and development plan documents.
+
+### Changed
+- `memory_skill_feedback` now prefers canonical `outcome` values: `success`, `partial`, `miss`, `misleading`, and `trigger_mismatch`, while preserving legacy `rating` compatibility.
+- Default skill injection now uses a conservative trigger/precondition gate so generic tasks do not pollute context with unrelated approved skills.
+- OpenCode memory rules now explicitly require Skill MCP injection and feedback behavior rather than only configuring MCP availability.
+- `Check Content-Encoding before parsing JSON body` was approved after real trial feedback and approval-gate validation.
+
+### Fixed
+- Generic OpenCode MCP tests no longer trigger unrelated SQLite encoding skills.
+- Negated contexts such as "not about SQLite" no longer count as positive trigger matches.
+
 ## [7.1.0-draft] - 2026-05-10
 
 ### Added

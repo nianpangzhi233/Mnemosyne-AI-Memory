@@ -1,0 +1,31 @@
+[
+  {
+    "id": "usage-8557d075",
+    "prompt": "Formal test of whether OpenCode proactively uses Mnemosyne Skill Memory MCP tools after restart. The task was not about SQLite Chinese mojibake, database encoding, or PowerShell display corruption.",
+    "expected": "Do not inject Windows SQLite Encoding Check for generic OpenCode MCP behavior tests unless the task is actually about SQLite Chinese mojibake or terminal encoding verification.",
+    "tags": [
+      "usage_feedback",
+      "outcome:trigger_mismatch",
+      "regression",
+      "opencode-real-test",
+      "trigger_mismatch",
+      "skill_injection"
+    ],
+    "status": "active"
+  },
+  {
+    "id": "usage-3e1439b5",
+    "prompt": "API 请求体乱码，怀疑请求解析或 Content-Encoding 有问题。需要判断是压缩请求体没解压，还是控制台/编码显示假象，或者代理改坏了头。",
+    "expected": "For generic API request body garbling or Content-Encoding issues, do not inject Windows SQLite Encoding Check unless SQLite/PowerShell database display is actually involved. Prefer Content-Encoding JSON body skill when request body parsing is involved.",
+    "tags": [
+      "usage_feedback",
+      "outcome:trigger_mismatch",
+      "regression",
+      "opencode-real-test",
+      "trigger_mismatch",
+      "api_request_garbled",
+      "skill_injection"
+    ],
+    "status": "active"
+  }
+]

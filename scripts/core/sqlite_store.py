@@ -938,6 +938,47 @@ class SQLiteStore(AbstractGraphStore):
         finally:
             conn.close()
 
+    @staticmethod
+    def _skill_trigger_matches_context(skill: Dict[str, Any], context: str) -> bool:
+        """Conservative lexical gate for default/trial injection.
+
+        Vector similarity finds candidates, but approved skills still need a
+        visible trigger/precondition cue in the task context to avoid generic
+        context pollution.
+        """
+        cues = (skill.get("trigger_patterns") or []) + (skill.get("preconditions") or [])
+        cues = [str(cue).strip().lower() for cue in cues if str(cue).strip()]
+        if not cues:
+            return True
+        text = (context or "").lower()
+        stopwords = {
+            "skill", "task", "test", "testing", "check", "use", "using", "with",
+            "when", "then", "this", "that", "memory", "mcp", "opencode", "feedback",
+            "context", "current", "generic", "behavior", "formal", "content", "data",
+            "text", "display", "displays", "incorrectly", "corrupted", "mistaken",
+            "terminal", "request", "body", "parse", "parsing", "json",
+        }
+        for cue in cues:
+            if cue in text and not SQLiteStore._context_term_is_negated(text, cue):
+                return True
+            terms = re.findall(r"[a-z0-9_+#.-]{3,}|[\u4e00-\u9fff]{2,}", cue)
+            terms = [term for term in terms if term not in stopwords]
+            if any(term in text and not SQLiteStore._context_term_is_negated(text, term) for term in terms):
+                return True
+        return False
+
+    @staticmethod
+    def _context_term_is_negated(text: str, term: str) -> bool:
+        idx = text.find(term)
+        if idx < 0:
+            return False
+        prefix = text[max(0, idx - 24):idx]
+        negators = (
+            "not ", "no ", "without ", "unrelated to ", "not about ",
+            "不涉及", "不包含", "不是", "无关", "非", "没有",
+        )
+        return any(neg in prefix for neg in negators)
+
     def inject_skills(self, context: str, max_chars: int = 800, top: int = 3,
                       min_similarity: float = 0.45, mode: str = "default") -> str:
         """Return a compact skill pointer block for the current context."""
@@ -952,6 +993,8 @@ class SQLiteStore(AbstractGraphStore):
         gated = []
         for skill in skills:
             status = skill.get("status")
+            if mode in {"default", "trial"} and not self._skill_trigger_matches_context(skill, context):
+                continue
             if status == "approved":
                 if skill.get("inject_enabled") and self._has_active_edge(skill["id"], "verified_by"):
                     skill["used_as"] = "approved"
@@ -1247,7 +1290,7 @@ class SQLiteStore(AbstractGraphStore):
         prompts = self.list_skill_test_prompts(skill_id, active_only=False)
         slug = artifact.get("slug") or _slugify(artifact.get("name") or skill_id)
         rel_path = Path("skills") / slug / "test-prompts.json"
-        abs_path = _PROJECT_ROOT / rel_path
+        abs_path = _SKILLS_DIR / slug / "test-prompts.json"
         abs_path.parent.mkdir(parents=True, exist_ok=True)
         payload = [
             {
@@ -1526,17 +1569,62 @@ class SQLiteStore(AbstractGraphStore):
         sync_info = self.sync_skill_file(node_id)
         return {"skill_id": node_id, "status": "approved", "inject_enabled": bool(inject_enabled), "file": sync_info}
 
-    def skill_feedback(self, skill_id: str, rating: str, note: str = "",
-                       task_context: str = "", used_as: str = "trial",
-                       verification_result: str = "") -> Dict[str, Any]:
-        if rating not in {"helpful", "not_helpful", "misleading", "partially_useful"}:
+    @staticmethod
+    def _normalize_skill_feedback_outcome(rating: str = None, outcome: str = None) -> tuple:
+        rating_to_outcome = {
+            "helpful": "success",
+            "partially_useful": "partial",
+            "not_helpful": "miss",
+            "misleading": "misleading",
+        }
+        outcome_to_rating = {
+            "success": "helpful",
+            "partial": "partially_useful",
+            "miss": "not_helpful",
+            "misleading": "misleading",
+            "trigger_mismatch": "not_helpful",
+        }
+        valid_outcomes = {"success", "partial", "miss", "misleading", "trigger_mismatch"}
+        if outcome is not None:
+            if outcome not in valid_outcomes:
+                raise ValueError(f"invalid outcome: {outcome}")
+            return outcome, rating if rating is not None else outcome_to_rating.get(outcome)
+        if rating not in rating_to_outcome:
             raise ValueError(f"invalid rating: {rating}")
+        return rating_to_outcome[rating], rating
+
+    @staticmethod
+    def _skill_feedback_relation_and_weight(outcome: str) -> tuple:
+        if outcome == "success":
+            return "verified_by", 0.7
+        if outcome == "partial":
+            return "needs_revision", 0.7
+        if outcome == "miss":
+            return "fails_on", 0.7
+        if outcome == "misleading":
+            return "fails_on", 0.9
+        if outcome == "trigger_mismatch":
+            return "needs_revision", 0.8
+        raise ValueError(f"invalid outcome: {outcome}")
+
+    def skill_feedback(self, skill_id: str, rating: str = None, note: str = "",
+                       task_context: str = "", used_as: str = "trial",
+                       verification_result: str = "", outcome: str = None,
+                       create_test_prompt: bool = False, expected: str = "",
+                       prompt_tags: List[str] = None) -> Dict[str, Any]:
+        if used_as not in {"approved", "trial", "experimental"}:
+            raise ValueError(f"invalid used_as: {used_as}")
+        outcome, rating = self._normalize_skill_feedback_outcome(rating=rating, outcome=outcome)
         artifact = self.get_skill_artifact(skill_id)
         if not artifact:
             raise ValueError(f"skill artifact not found: {skill_id}")
+        if create_test_prompt and not task_context:
+            create_test_prompt = False
+
         content = (
             f"Skill feedback for {skill_id}\n"
             f"Rating: {rating}\n"
+            f"Outcome: {outcome}\n"
             f"Used as: {used_as}\n"
             f"Task context: {task_context}\n"
             f"Verification result: {verification_result}\n"
@@ -1547,35 +1635,204 @@ class SQLiteStore(AbstractGraphStore):
             node_type="skill_feedback",
             task_type="skill_feedback",
             tags=["skill_feedback", rating, used_as],
-            principle=f"Skill feedback: {rating}",
+            principle=f"Skill feedback: {outcome}",
         )
-        if rating == "helpful":
-            relation = "verified_by"
-        elif rating == "partially_useful":
-            relation = "needs_revision"
-        else:
-            relation = "fails_on"
-        self.add_edge(skill_id, feedback_id, relation, weight=0.9 if rating == "misleading" else 0.7, source="skill_feedback")
+        relation, weight = self._skill_feedback_relation_and_weight(outcome)
+        self.add_edge(skill_id, feedback_id, relation, weight=weight, source="skill_feedback")
 
-        trial_count = (artifact.get("trial_count") or 0) + 1
+        usage_id = str(uuid.uuid4())
+        created_at = _now_iso()
+        should_count_trial = used_as == "trial"
+        audit_required = int(outcome != "success")
+        created_prompt_id = None
+        if create_test_prompt:
+            prompt_id = f"usage-{feedback_id[:8]}"
+            prompt_tags = list(prompt_tags or [])
+            base_tags = ["usage_feedback", f"outcome:{outcome}"]
+            if outcome in {"miss", "misleading", "trigger_mismatch"}:
+                base_tags.append("regression")
+            tags = base_tags + [tag for tag in prompt_tags if tag not in base_tags]
+            created_prompt_id = self.add_skill_test_prompt(
+                skill_id,
+                prompt_id,
+                task_context,
+                expected=expected or verification_result,
+                tags=tags,
+            )
+            self.sync_skill_test_prompts_file(skill_id)
+
+        metadata = artifact.get("metadata") or {}
+        if isinstance(metadata, str):
+            metadata = _json_loads(metadata, {})
+        usage_loop = metadata.get("usage_loop") or {}
+        if not isinstance(usage_loop, dict):
+            usage_loop = {}
+        usage_loop.setdefault("audit_failures", 0)
+        usage_loop.setdefault("trigger_mismatch_count", 0)
+        usage_loop["last_audit_at"] = created_at
+        if outcome == "trigger_mismatch":
+            usage_loop["trigger_mismatch_count"] = int(usage_loop.get("trigger_mismatch_count") or 0) + 1
+        if outcome in {"miss", "misleading", "trigger_mismatch"}:
+            usage_loop["audit_failures"] = int(usage_loop.get("audit_failures") or 0) + 1
+            if created_prompt_id:
+                usage_loop["last_failure_prompt_id"] = created_prompt_id
+        metadata["usage_loop"] = usage_loop
+
+        trial_count = artifact.get("trial_count") or 0
         trial_success = artifact.get("trial_success_count") or 0
         trial_failure = artifact.get("trial_failure_count") or 0
-        updates = {"trial_count": trial_count, "last_trial_at": _now_iso()}
-        if rating == "helpful":
-            trial_success += 1
-            updates["trial_success_count"] = trial_success
-            if trial_success >= 3 and trial_failure == 0:
-                updates["promotion_candidate"] = 1
-        elif rating in ("not_helpful", "misleading"):
-            trial_failure += 1
-            updates["trial_failure_count"] = trial_failure
-            updates["needs_revision"] = 1
-            if rating == "misleading":
-                updates["trial_enabled"] = 0
+        updates = {"metadata": metadata}
+        if should_count_trial:
+            trial_count += 1
+            updates["trial_count"] = trial_count
+            updates["last_trial_at"] = created_at
+            if outcome == "success":
+                trial_success += 1
+                updates["trial_success_count"] = trial_success
+                if trial_success >= 3 and trial_failure == 0:
+                    updates["promotion_candidate"] = 1
+            elif outcome in {"miss", "misleading", "trigger_mismatch"}:
+                trial_failure += 1
+                updates["trial_failure_count"] = trial_failure
+                updates["needs_revision"] = 1
+                if outcome == "misleading":
+                    updates["trial_enabled"] = 0
+            else:
+                updates["needs_revision"] = 1
         else:
-            updates["needs_revision"] = 1
+            if outcome != "success":
+                updates["needs_revision"] = 1
+            if outcome == "misleading":
+                updates["trial_enabled"] = 0
+
         self.update_skill_artifact(skill_id, **updates)
-        return {"skill_id": skill_id, "feedback_id": feedback_id, "rating": rating, "relation": relation, "updates": updates}
+
+        conn = self._connect()
+        try:
+            conn.execute("""
+                INSERT INTO skill_usage_feedback(
+                    id, skill_id, feedback_node_id, task_context, used_as, outcome,
+                    rating, verification_result, note, created_prompt_id, audit_required, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                usage_id, skill_id, feedback_id, task_context, used_as, outcome,
+                rating, verification_result, note, created_prompt_id, audit_required, created_at,
+            ))
+            conn.commit()
+        finally:
+            conn.close()
+
+        return {
+            "skill_id": skill_id,
+            "feedback_id": feedback_id,
+            "usage_feedback_id": usage_id,
+            "rating": rating,
+            "outcome": outcome,
+            "relation": relation,
+            "weight": weight,
+            "created_prompt_id": created_prompt_id,
+            "updates": updates,
+        }
+
+    def should_audit_skill(self, skill_id: str, trigger: str = "sampling") -> Dict[str, Any]:
+        artifact = self.get_skill_artifact(skill_id)
+        if not artifact:
+            raise ValueError(f"skill artifact not found: {skill_id}")
+        metadata = artifact.get("metadata") or {}
+        usage_loop = metadata.get("usage_loop") or {}
+        status = artifact.get("status")
+        risk_level = artifact.get("risk_level") or "medium"
+        audit_failures = int(usage_loop.get("audit_failures") or 0)
+        trigger_mismatches = int(usage_loop.get("trigger_mismatch_count") or 0)
+        trial_failures = int(artifact.get("trial_failure_count") or 0)
+        reasons = []
+
+        if status not in {"approved", "evolved"}:
+            return {"audit_required": False, "reason": "status_not_auditable", "priority": "none", "reasons": []}
+        if trigger == "failure":
+            reasons.append("failure_triggered")
+        if risk_level == "high":
+            reasons.append("high_risk")
+        if audit_failures:
+            reasons.append("usage_failures_present")
+        if trigger_mismatches:
+            reasons.append("trigger_mismatch_present")
+        if trial_failures and status == "evolved":
+            reasons.append("trial_failures_present")
+        if (artifact.get("latest_live_test_delta") or 0) < 0:
+            reasons.append("negative_live_test_delta")
+        if artifact.get("latest_decision") == "needs_revision" or artifact.get("needs_revision"):
+            reasons.append("needs_revision_flagged")
+
+        if not reasons and trigger == "sampling" and status == "approved" and risk_level == "medium":
+            reasons.append("medium_risk_sampling")
+
+        priority = "none"
+        if reasons:
+            priority = "high" if any(r in reasons for r in ("failure_triggered", "high_risk", "negative_live_test_delta", "needs_revision_flagged")) else "medium"
+        return {
+            "audit_required": bool(reasons),
+            "reason": reasons[0] if reasons else "no_audit_needed",
+            "priority": priority,
+            "reasons": reasons,
+            "skill_id": skill_id,
+            "trigger": trigger,
+        }
+
+    def record_skill_audit(self, skill_id: str, eval_result: Dict[str, Any], trigger: str = "sampling") -> Dict[str, Any]:
+        artifact = self.get_skill_artifact(skill_id)
+        if not artifact:
+            raise ValueError(f"skill artifact not found: {skill_id}")
+        metadata = artifact.get("metadata") or {}
+        usage_loop = metadata.get("usage_loop") or {}
+        usage_loop["last_audit_at"] = _now_iso()
+        usage_loop["last_audit_trigger"] = trigger
+        usage_loop["last_audit_passed"] = bool(eval_result.get("passed"))
+        usage_loop["last_audit_reason"] = eval_result.get("reason") or eval_result.get("decision_reason") or ""
+
+        current_status = artifact.get("status")
+        decision = "kept"
+        updates = {"metadata": metadata, "latest_decision_reason": usage_loop["last_audit_reason"]}
+        if eval_result.get("passed"):
+            updates["latest_decision"] = "audit_passed"
+        else:
+            usage_loop["audit_failures"] = int(usage_loop.get("audit_failures") or 0) + 1
+            unsafe = bool(eval_result.get("unsafe") or eval_result.get("misleading"))
+            if unsafe:
+                decision = "deprecated"
+                updates.update({
+                    "status": "deprecated",
+                    "review_status": "deprecated",
+                    "inject_enabled": 0,
+                    "trial_enabled": 0,
+                    "requires_feedback": 0,
+                    "deprecated_at": _now_iso(),
+                    "latest_decision": "deprecated",
+                })
+            elif current_status == "approved":
+                decision = "needs_revision"
+                updates.update({
+                    "status": "needs_revision",
+                    "review_status": "needs_revision",
+                    "inject_enabled": 0,
+                    "trial_enabled": 1,
+                    "requires_feedback": 1,
+                    "needs_revision": 1,
+                    "latest_decision": "needs_revision",
+                })
+            else:
+                decision = "needs_revision"
+                updates.update({
+                    "status": "needs_revision",
+                    "review_status": "needs_revision",
+                    "trial_enabled": 1,
+                    "requires_feedback": 1,
+                    "needs_revision": 1,
+                    "latest_decision": "needs_revision",
+                })
+        metadata["usage_loop"] = usage_loop
+        self.update_skill_artifact(skill_id, **updates)
+        return {"skill_id": skill_id, "decision": decision, "updates": updates}
 
     def deprecate_skill(self, node_id: str, reason: str = "") -> Dict[str, Any]:
         artifact = self.get_skill_artifact(node_id)

@@ -1,6 +1,6 @@
 # Check Content-Encoding before parsing JSON body
 
-> Status: evolved
+> Status: approved
 > Version: 0.1.0
 > Risk: medium
 > Node: 45657726-a0db-4a11-8a33-ff1989197bc4
@@ -70,6 +70,11 @@ For ordinary garbled JSON, name Content-Encoding first and decompress before JSO
   "mutation_round": 3,
   "mutation_reason_round_2": "Real Darwin round 2 lost the br/deflate prompt because baseline covered transfer framing/dechunking, multi Content-Encoding reverse order, raw deflate vs zlib wrapper, body completeness, and magic bytes. Add those diagnostics explicitly.",
   "mutation_reason_round_3": "Round 2 overgeneralized. Round 3 uses scenario branching: simple garbled JSON -> Content-Encoding first; advanced framing/completeness/proxy branches only when cues exist.",
-  "trigger_refinement_reason": "Round 3 Darwin passed 4/4, but Mnemosyne trigger_precision was 0 because trigger list was too broad. Refine to high-precision triggers rather than lowering threshold."
+  "trigger_refinement_reason": "Round 3 Darwin passed 4/4, but Mnemosyne trigger_precision was 0 because trigger list was too broad. Refine to high-precision triggers rather than lowering threshold.",
+  "usage_loop": {
+    "audit_failures": 0,
+    "trigger_mismatch_count": 0,
+    "last_audit_at": "2026-05-10T02:09:05.101096+00:00"
+  }
 }
 ```

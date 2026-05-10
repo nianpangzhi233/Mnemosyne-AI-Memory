@@ -358,6 +358,6 @@ Mnemosyne 模拟人脑的几种关键记忆机制：
 
 <div align="center">
 
-**[v7.0 Skill Memory Blueprint →](v7.0-skill-memory-system.md)** · **[Changelog →](../CHANGELOG.md)**
+**[v7.0 Skill Memory Blueprint →](v7.0-skill-memory-system.md)** · **[v7.1 双边进化 →](v7.1-bilateral-skill-evolution.md)** · **[v7.2 证据回流 →](v7.2-skill-evidence-flow.md)** · **[v7.2 开发计划 →](v7.2-development-plan.md)** · **[Changelog →](../CHANGELOG.md)**
 
 </div>

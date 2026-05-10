@@ -358,6 +358,6 @@ Inspired by: [OpenViking](https://github.com/bytedance/OpenViking) (L0/L1/L2 lay
 
 <div align="center">
 
-**[v7.0 Skill Memory Blueprint →](docs/v7.0-skill-memory-system.md)** · **[Changelog →](CHANGELOG.md)**
+**[v7.0 Skill Memory Blueprint →](docs/v7.0-skill-memory-system.md)** · **[v7.1 Bilateral Evolution →](docs/v7.1-bilateral-skill-evolution.md)** · **[v7.2 Evidence Flow →](docs/v7.2-skill-evidence-flow.md)** · **[v7.2 Dev Plan →](docs/v7.2-development-plan.md)** · **[Changelog →](CHANGELOG.md)**
 
 </div>

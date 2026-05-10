@@ -114,9 +114,13 @@ status=approved AND inject_enabled=true AND 存在 verified_by 边
 
 使用规则：
 
+- 每次新会话先 `memory_inject(context="当前工作目录或任务描述")`，再视当前任务调用 `memory_skill_inject(context="当前任务")`。
 - 需要解决具体任务时，可先 `memory_skill_inject(context="当前任务")` 获取已批准 Skill。
 - 想探索未批准 Skill，必须显式用 `mode="experimental"`，并清楚标记其状态。
 - 低风险 `evolved` 试用必须走 `mode="trial"`，并在任务结束调用 `memory_skill_feedback`。
+- 默认注入后如果结果正确、部分正确、没帮上忙、误导或触发错误，结束任务时都要写反馈；不要只在成功时反馈。
+- `memory_skill_feedback` 优先填写 `outcome`，旧 `rating` 只作为兼容字段：`success / partial / miss / misleading / trigger_mismatch`。
+- 如果反馈里有可复现失败，优先 `create_test_prompt=true`，并补 `expected`、`prompt_tags`。
 - `verified_by` 必须来自真实 full_test、真实任务反馈或明确用户确认，禁止为了过线伪造证据。
 - 不要用 `memory_update` 手改 Skill 状态；批准必须走 `memory_skill_approve`，反馈必须走 `memory_skill_feedback`，废弃必须走 `memory_skill_deprecate`。
 
@@ -127,9 +131,16 @@ memory_crystallize       # 经验节点 -> skill embryo/draft
 memory_skill_search      # 搜索所有 Skill，不代表可注入
 memory_skill_inject      # 安全注入，默认只给 approved
 memory_skill_approve     # 批准，强制 verified_by
-memory_skill_feedback    # 反馈闭环，写边和计数
+memory_skill_feedback    # 反馈闭环，写边和计数，支持 outcome / create_test_prompt
 memory_skill_deprecate   # 软废弃，保留证据链
 ```
+
+OpenCode 行为要求：
+
+- 看到当前任务可能受已有 Skill 影响时，先 `memory_skill_inject`，别凭感觉硬写。
+- 任务结束时，如果实际用到了 Skill，必须补 `memory_skill_feedback`，哪怕结果是失败。
+- 如果同一个失败模式连续出现，把它转成测试题，而不是只在聊天里口头记住。
+- 不要把 `approved` 当成永远正确；approved 也允许被抽测和降级。
 
 ## 规则 6：善用 memory_update 和 memory_delete
 
