@@ -97,15 +97,17 @@ def main():
 
     if args.full:
         from datetime import datetime, timezone
+
+        results = run_dream(store, embedder, slow=not args.no_slow)
+        dream_finished_at = datetime.now(timezone.utc).isoformat()
+
         conn = sqlite3.connect(str(DB_PATH))
         conn.execute(
             "UPDATE meta SET value=? WHERE key='last_dream'",
-            (datetime.now(timezone.utc).isoformat(),),
+            (dream_finished_at,),
         )
         conn.commit()
         conn.close()
-
-        results = run_dream(store, embedder, slow=not args.no_slow)
 
         print("\n[Dream] 完成!")
         show_stats()

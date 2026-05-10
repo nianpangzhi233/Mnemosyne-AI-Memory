@@ -57,10 +57,24 @@ def result_sentence(name: str, result: dict) -> tuple[str, str, str]:
     if "snapshot" in low or "预" in name:
         detail = f"开始整理前，图谱里有 {result.get('nodes_before', '?')} 个节点、{result.get('edges_before', '?')} 条边。"
     elif "logscan" in low or "ɨ" in name or "扫描" in name:
+        written = result.get("written", 0)
+        scanned = result.get("scanned_fragments", result.get("scanned_sessions", 0))
         added = result.get("added", 0)
         new_nodes = result.get("new_nodes", 0)
-        detail = f"扫描日志后新增 {added} 条关系，发现 {new_nodes} 个新节点。"
-        if not added and not new_nodes:
+        if written or added or new_nodes:
+            parts = []
+            if written:
+                parts.append(f"写入 {written} 条原始记忆")
+            if scanned:
+                parts.append(f"扫描 {scanned} 个片段")
+            if added:
+                parts.append(f"新增 {added} 条关系")
+            if new_nodes:
+                parts.append(f"发现 {new_nodes} 个新节点")
+            detail = "扫描日志后" + "，".join(parts) + "。"
+            status = f"+{written}"
+            tone = "pill-green"
+        else:
             detail = "扫描日志完成，没有发现需要新增的记忆。"
             status = "无新增"
             tone = "pill-gray"

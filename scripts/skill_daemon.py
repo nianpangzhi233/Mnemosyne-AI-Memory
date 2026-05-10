@@ -219,7 +219,7 @@ def run_skill_auto_loop_once() -> dict:
 
 
 def run_dream_full() -> int:
-    rc = _run_command([sys.executable, str(ROOT / "scripts" / "graph_dream.py"), "--full", "--no-slow"])
+    rc = _run_command([sys.executable, str(ROOT / "scripts" / "graph_dream.py"), "--full"])
     if rc == 0:
         result = run_skill_auto_loop_once()
         logging.info("skill_auto_loop result=%s", result)

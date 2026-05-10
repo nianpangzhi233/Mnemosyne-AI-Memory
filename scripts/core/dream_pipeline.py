@@ -1097,7 +1097,7 @@ class LogScanPhase(DreamPhase):
             except Exception:
                 pass
 
-        return {"scanned_sessions": len(fragments), "written": written}
+        return {"scanned_fragments": len(fragments), "written": written}
 
 
 class DistillPhase(DreamPhase):
