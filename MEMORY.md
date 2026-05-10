@@ -41,8 +41,8 @@ memory_write(
 ### v7.1 task_type 分类（必须填）
 
 每次写入记忆时，**必须填写 `task_type` 字段**，将经验归类到技术领域。
-已知类型：`api_proxy`、`memory_system`、`cli_tool`、`coding`、`testing`、`debugging`、`visual_design`、`workflow`、`llm_integration`、`electron_dev`、`skill_memory`、`skill_feedback`。
-如果没有合适的，自己造一个 snake_case 的新类型名。
+`memory_write` 的 schema 里会动态列出当前所有已注册的类型。
+从里面选最合适的。如果没有合适的，自己造一个 snake_case 的新类型名，系统会自动注册。
 
 ```
 memory_write(

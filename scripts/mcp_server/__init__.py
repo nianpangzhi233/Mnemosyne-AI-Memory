@@ -45,7 +45,33 @@ def _send(msg):
     sys.stdout.flush()
 
 
+def _get_registered_task_types():
+    try:
+        store = _get_store()
+        conn = store._connect()
+        try:
+            row = conn.execute(
+                "SELECT value FROM meta WHERE key='registered_task_types'"
+            ).fetchone()
+            if row:
+                import json
+                return json.loads(row[0])
+        finally:
+            conn.close()
+    except Exception:
+        pass
+    return []
+
+
 def _tools_list():
+    registered_types = _get_registered_task_types()
+    types_str = ", ".join(registered_types) if registered_types else "none yet"
+    task_type_desc = (
+        "REQUIRED. Classify this memory into a task category. "
+        "Current registered types: [" + types_str + "]. "
+        "Pick the best match from these types. "
+        "If none fits, invent a new snake_case category name — it will be auto-registered for future use."
+    )
     return [
         {
             "name": "memory_write",
@@ -97,15 +123,7 @@ def _tools_list():
                     },
                     "task_type": {
                         "type": "string",
-                        "description": "REQUIRED when the task category is identifiable. "
-                                       "Classify this memory into a task category. "
-                                       "Known categories: api_proxy, memory_system, cli_tool, coding, testing, "
-                                       "debugging, visual_design, workflow, llm_integration, electron_dev, "
-                                       "skill_memory, skill_feedback. "
-                                       "If none fits, invent a new snake_case category name. "
-                                       "Examples: 'Fixed gzip parsing in API gateway' -> api_proxy. "
-                                       "'torch DLL crash on Windows' -> debugging. "
-                                       "'Added dream scanner dedup' -> memory_system."
+                        "description": task_type_desc
                     }
                 },
                 "required": ["content"]
