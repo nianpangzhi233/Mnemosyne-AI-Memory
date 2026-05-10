@@ -45,6 +45,20 @@
     .eyebrow { color: var(--blue); font-weight: 800; letter-spacing: .12em; text-transform: uppercase; font-size: 13px; }
     h1 { margin: 18px 0 18px; font-size: clamp(46px, 7vw, 84px); line-height: .95; letter-spacing: -0.06em; }
     .lead { color: #c4d2ef; font-size: clamp(18px, 2.4vw, 23px); line-height: 1.55; max-width: 680px; }
+    .status-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 13px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.05);
+      border: 1px solid var(--line);
+      color: #dce8ff;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .status-chip strong { color: var(--gold); }
     .cta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 32px; }
     .button { padding: 13px 18px; border-radius: 999px; font-weight: 800; border: 1px solid var(--line); background: rgba(255,255,255,.06); }
     .button.primary { background: linear-gradient(135deg, var(--violet), var(--blue)); color: #05111f; border: none; }
@@ -61,6 +75,7 @@
     .section-title p { margin: 0; color: var(--muted); max-width: 460px; line-height: 1.6; }
     .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
     .card { background: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.035)); border: 1px solid var(--line); border-radius: 24px; padding: 22px; min-height: 190px; }
+    .card + .card { box-shadow: inset 0 1px 0 rgba(255,255,255,.04); }
     .card strong { display: block; font-size: 18px; margin-bottom: 10px; }
     .card p { color: var(--muted); line-height: 1.6; margin: 0; }
     .pill { display: inline-flex; margin-bottom: 16px; padding: 7px 10px; border-radius: 999px; background: rgba(117,215,255,.12); color: var(--blue); font-size: 12px; font-weight: 800; }
@@ -73,6 +88,14 @@
     .split { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
     .quote { background: linear-gradient(135deg, rgba(141,124,255,.22), rgba(117,215,255,.12)); border: 1px solid var(--line); border-radius: 30px; padding: 30px; }
     .quote p { color: #dce8ff; font-size: 22px; line-height: 1.45; margin: 0; }
+    .callout {
+      background: rgba(255,255,255,.05);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 20px 22px;
+      color: #dce8ff;
+      line-height: 1.55;
+    }
     footer { padding: 52px 0 70px; color: var(--muted); border-top: 1px solid var(--line); }
 
     @media (max-width: 860px) {
@@ -100,6 +123,11 @@
         <div class="eyebrow">Bionic memory for AI agents</div>
         <h1>Give your AI a brain that survives the next session.</h1>
         <p class="lead">Mnemosyne is a local-first memory system with knowledge graph retrieval, predictive validation, dream consolidation, and governed skill evolution through MCP.</p>
+        <div class="status-row">
+          <span class="status-chip"><strong>v7.2.0</strong> release published</span>
+          <span class="status-chip">GitHub Pages enabled</span>
+          <span class="status-chip">Discussions open</span>
+        </div>
         <div class="cta">
           <a class="button primary" href="https://github.com/nianpangzhi233/Mnemosyne-AI-Memory">Star on GitHub</a>
           <a class="button" href="https://github.com/nianpangzhi233/Mnemosyne-AI-Memory#quick-start">Read the docs</a>
@@ -164,6 +192,13 @@ python scripts/graph_dream.py --full</code></pre>
         <strong>Try it in five minutes</strong>
         <p>Python 3.10+, SQLite, local embeddings, optional LLM review, REST API, MCP server, CLI, and dashboard. No external service is required for the core path.</p>
         <div class="cta"><a class="button primary" href="https://github.com/nianpangzhi233/Mnemosyne-AI-Memory#quick-start">Get started</a></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="callout">
+        <strong style="color:#eef4ff;">Launch notes</strong><br>
+        The repository has a published release, GitHub Pages is live, and the social preview asset is ready as <code>assets/social-preview.png</code>. The only manual GitHub step left is uploading that image in repository settings.
       </div>
     </section>
   </main>
