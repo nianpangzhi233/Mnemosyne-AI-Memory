@@ -2,9 +2,9 @@
 
 # Mnemosyne
 
-**给 AI 装一颗会忘、会想、会做梦、还会长技能的脑。**
+**给 AI 装一颗能跨会话记住经验、用 GraphRAG 检索、靠预测式记忆避坑、在梦里整合、还能长出受治理技能的脑。**
 
-仿生经验与记忆系统 — 知识图谱 + 向量搜索 + 预测式记忆 + Skill Memory + MCP 集成
+仿生经验与记忆系统 — Agent memory、GraphRAG、向量搜索、预测式记忆、做梦整合、Skill Memory、MCP、REST API 和 Dashboard。
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
@@ -15,7 +15,7 @@
 [![Search](https://img.shields.io/badge/search-hybrid%20%7C%20precise%20%7C%20creative-orange?style=flat-square)](#知识图谱--多维检索)
 [![Memory](https://img.shields.io/badge/memory-predictive%20%2B%20dreaming-8A2BE2?style=flat-square)](#预测式记忆)
 
-[English](../README.md) · [Project Site](https://nianpangzhi233.github.io/Mnemosyne-AI-Memory/) · [Releases](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/releases)
+[English](../README.md) · [Project Site](https://nianpangzhi233.github.io/Mnemosyne-AI-Memory/) · [FAQ](faq.md) · [Benchmarks](benchmarks.md) · [Why it matters](why-it-matters.md) · [Releases](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/releases)
 
 </div>
 
@@ -35,6 +35,10 @@
 
 ---
 
+## 它到底是什么
+
+Mnemosyne 是一个给开发者用的本地优先 AI 记忆系统。它把 GraphRAG、向量搜索、预测式记忆、做梦整合和受治理的 Skill Memory 放在一起，再通过 MCP、REST API、CLI 和 Dashboard 提供入口。
+
 ## 你的 AI 有个问题
 
 AI 助手有个致命缺陷：**它记不住事。**
@@ -44,6 +48,13 @@ AI 助手有个致命缺陷：**它记不住事。**
 这不是 bug，是设计——每次对话都是一张白纸。
 
 **Mnemosyne 解决这个问题。** 不是文件存储，不是日记本，不是关键词匹配。是一张**活的知识图谱**——像人脑一样，会联想、会遗忘、会做梦。
+
+### 适用场景
+
+- 记住团队偏好、架构决策和重复踩坑。
+- 不用每次都重新解释项目背景。
+- 在 Agent 重复犯错前提前提示。
+- 把稳定经验簇变成可复用、可治理的技能。
 
 ### 和常见方案有什么不一样
 
@@ -411,6 +422,6 @@ Mnemosyne 模拟人脑的几种关键记忆机制：
 
 <div align="center">
 
-**[v7.0 Skill Memory Blueprint →](v7.0-skill-memory-system.md)** · **[v7.1 双边进化 →](v7.1-bilateral-skill-evolution.md)** · **[v7.2 证据回流 →](v7.2-skill-evidence-flow.md)** · **[v7.2 Release Notes →](releases/v7.2.0.md)** · **[Changelog →](../CHANGELOG.md)**
+**[FAQ →](faq.md)** · **[Benchmarks →](benchmarks.md)** · **[Why it matters →](why-it-matters.md)** · **[v7.0 Skill Memory Blueprint →](v7.0-skill-memory-system.md)** · **[v7.1 双边进化 →](v7.1-bilateral-skill-evolution.md)** · **[v7.2 证据回流 →](v7.2-skill-evidence-flow.md)** · **[v7.2 Release Notes →](releases/v7.2.0.md)** · **[Changelog →](../CHANGELOG.md)**
 
 </div>

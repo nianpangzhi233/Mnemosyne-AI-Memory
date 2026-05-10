@@ -2,9 +2,9 @@
 
 # Mnemosyne
 
-**Give your AI a brain that forgets, recalls, dreams, and grows skills.**
+**Give your AI a brain that remembers across sessions, retrieves with GraphRAG, predicts with `precondition`, dreams to consolidate, and grows governed skills.**
 
-Bionic Experience & Memory System — Knowledge Graph + Vector Search + Predictive Memory + Skill Memory + MCP
+Bionic Experience & Memory System — Agent memory, GraphRAG, vector search, predictive memory, dream consolidation, Skill Memory, MCP, REST API, and dashboard.
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
@@ -15,7 +15,7 @@ Bionic Experience & Memory System — Knowledge Graph + Vector Search + Predicti
 [![Search](https://img.shields.io/badge/search-hybrid%20%7C%20precise%20%7C%20creative-orange?style=flat-square)](#knowledge-graph--multi-dimensional-retrieval)
 [![Memory](https://img.shields.io/badge/memory-predictive%20%2B%20dreaming-8A2BE2?style=flat-square)](#predictive-memory)
 
-[中文文档](docs/README_CN.md) · [Project Site](https://nianpangzhi233.github.io/Mnemosyne-AI-Memory/) · [Releases](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/releases)
+[中文文档](docs/README_CN.md) · [Project Site](https://nianpangzhi233.github.io/Mnemosyne-AI-Memory/) · [FAQ](docs/faq.md) · [Benchmarks](docs/benchmarks.md) · [Why it matters](docs/why-it-matters.md) · [Releases](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/releases)
 
 </div>
 
@@ -35,6 +35,10 @@ Bionic Experience & Memory System — Knowledge Graph + Vector Search + Predicti
 
 ---
 
+## What It Is
+
+Mnemosyne is a local-first AI memory system for developers who keep teaching an agent the same lesson and want it to actually remember. It combines GraphRAG, vector search, predictive memory, dream consolidation, and governed Skill Memory behind MCP, REST API, CLI, and a dashboard.
+
 ## The Problem
 
 AI assistants have a fatal flaw: **they can't remember.**
@@ -44,6 +48,13 @@ You spent 30 minutes explaining your project architecture — next day, it's gon
 This isn't a bug, it's by design — every conversation starts from a blank slate.
 
 **Mnemosyne fixes this.** Not a file store, not a diary, not keyword matching. It's a **living knowledge graph** — like a human brain that associates, forgets, and dreams.
+
+### Use Cases
+
+- Remember team preferences, architecture decisions, and recurring fixes.
+- Recall project-specific lessons without re-explaining them every session.
+- Surface known pitfalls before the agent repeats them.
+- Convert reliable experience clusters into reusable, governed skills.
 
 ### Why it is different
 
@@ -416,6 +427,9 @@ Runs on pure rules by default — no LLM needed. For smarter review, copy `llm_c
 - [Contributing](CONTRIBUTING.md)
 - [Security Policy](SECURITY.md)
 - [Open Source Launch Checklist](docs/open-source-launch.md)
+- [FAQ](docs/faq.md)
+- [Benchmarks](docs/benchmarks.md)
+- [Why it matters](docs/why-it-matters.md)
 
 ## License
 
@@ -435,6 +449,6 @@ Inspired by: [OpenViking](https://github.com/bytedance/OpenViking) (L0/L1/L2 lay
 
 <div align="center">
 
-**[v7.0 Skill Memory Blueprint →](docs/v7.0-skill-memory-system.md)** · **[v7.1 Bilateral Evolution →](docs/v7.1-bilateral-skill-evolution.md)** · **[v7.2 Evidence Flow →](docs/v7.2-skill-evidence-flow.md)** · **[v7.2 Release Notes →](docs/releases/v7.2.0.md)** · **[Changelog →](CHANGELOG.md)**
+**[FAQ →](docs/faq.md)** · **[Benchmarks →](docs/benchmarks.md)** · **[Why it matters →](docs/why-it-matters.md)** · **[v7.0 Skill Memory Blueprint →](docs/v7.0-skill-memory-system.md)** · **[v7.1 Bilateral Evolution →](docs/v7.1-bilateral-skill-evolution.md)** · **[v7.2 Evidence Flow →](docs/v7.2-skill-evidence-flow.md)** · **[v7.2 Release Notes →](docs/releases/v7.2.0.md)** · **[Changelog →](CHANGELOG.md)**
 
 </div>
