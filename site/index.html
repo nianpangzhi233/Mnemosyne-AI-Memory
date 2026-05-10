@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mnemosyne - Bionic Memory for AI Agents</title>
+  <meta name="description" content="A bionic memory system for AI agents: knowledge graph, vector search, predictive memory, dream consolidation, skill evolution, MCP, REST API, and dashboard.">
+  <meta property="og:title" content="Mnemosyne - Bionic Memory for AI Agents">
+  <meta property="og:description" content="Give your AI a brain that remembers, dreams, and grows governed skills.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="assets/hero.svg">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080d18;
+      --panel: #111a2c;
+      --panel-2: #162139;
+      --text: #eef4ff;
+      --muted: #9fb0d2;
+      --blue: #75d7ff;
+      --violet: #8d7cff;
+      --gold: #ffd166;
+      --line: rgba(187, 205, 255, 0.16);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 18% 12%, rgba(141, 124, 255, 0.28), transparent 34rem),
+        radial-gradient(circle at 76% 6%, rgba(117, 215, 255, 0.18), transparent 30rem),
+        linear-gradient(180deg, #080d18 0%, #0b1220 48%, #101725 100%);
+      color: var(--text);
+    }
+
+    a { color: inherit; text-decoration: none; }
+    .shell { width: min(1120px, calc(100% - 40px)); margin: 0 auto; }
+    .nav { display: flex; justify-content: space-between; align-items: center; padding: 28px 0; color: var(--muted); }
+    .brand { display: flex; gap: 10px; align-items: center; font-weight: 800; color: var(--text); }
+    .mark { width: 26px; height: 26px; border-radius: 9px; background: linear-gradient(135deg, var(--violet), var(--blue)); box-shadow: 0 0 32px rgba(117, 215, 255, 0.38); }
+    .navlinks { display: flex; gap: 18px; font-size: 14px; }
+
+    .hero { padding: 66px 0 82px; display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 48px; align-items: center; }
+    .eyebrow { color: var(--blue); font-weight: 800; letter-spacing: .12em; text-transform: uppercase; font-size: 13px; }
+    h1 { margin: 18px 0 18px; font-size: clamp(46px, 7vw, 84px); line-height: .95; letter-spacing: -0.06em; }
+    .lead { color: #c4d2ef; font-size: clamp(18px, 2.4vw, 23px); line-height: 1.55; max-width: 680px; }
+    .cta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 32px; }
+    .button { padding: 13px 18px; border-radius: 999px; font-weight: 800; border: 1px solid var(--line); background: rgba(255,255,255,.06); }
+    .button.primary { background: linear-gradient(135deg, var(--violet), var(--blue)); color: #05111f; border: none; }
+    .terminal { background: rgba(8, 13, 24, .76); border: 1px solid var(--line); border-radius: 28px; padding: 24px; box-shadow: 0 28px 80px rgba(0,0,0,.36); }
+    .dots { display: flex; gap: 7px; margin-bottom: 18px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #53627e; }
+    pre { margin: 0; white-space: pre-wrap; color: #dce8ff; font-size: 14px; line-height: 1.7; }
+    code .accent { color: var(--gold); }
+    code .cyan { color: var(--blue); }
+
+    section { padding: 58px 0; }
+    .section-title { display: flex; justify-content: space-between; gap: 24px; align-items: end; margin-bottom: 24px; }
+    h2 { margin: 0; font-size: clamp(30px, 4vw, 48px); letter-spacing: -0.04em; }
+    .section-title p { margin: 0; color: var(--muted); max-width: 460px; line-height: 1.6; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .card { background: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.035)); border: 1px solid var(--line); border-radius: 24px; padding: 22px; min-height: 190px; }
+    .card strong { display: block; font-size: 18px; margin-bottom: 10px; }
+    .card p { color: var(--muted); line-height: 1.6; margin: 0; }
+    .pill { display: inline-flex; margin-bottom: 16px; padding: 7px 10px; border-radius: 999px; background: rgba(117,215,255,.12); color: var(--blue); font-size: 12px; font-weight: 800; }
+
+    .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+    .step { position: relative; padding: 18px; border-radius: 20px; border: 1px solid var(--line); background: var(--panel); min-height: 120px; }
+    .step span { color: var(--gold); font-weight: 900; }
+    .step p { color: var(--muted); line-height: 1.5; margin: 10px 0 0; }
+
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .quote { background: linear-gradient(135deg, rgba(141,124,255,.22), rgba(117,215,255,.12)); border: 1px solid var(--line); border-radius: 30px; padding: 30px; }
+    .quote p { color: #dce8ff; font-size: 22px; line-height: 1.45; margin: 0; }
+    footer { padding: 52px 0 70px; color: var(--muted); border-top: 1px solid var(--line); }
+
+    @media (max-width: 860px) {
+      .hero, .split { grid-template-columns: 1fr; }
+      .grid, .flow { grid-template-columns: 1fr; }
+      .navlinks { display: none; }
+      section { padding: 42px 0; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="shell nav">
+    <a class="brand" href="#top"><span class="mark"></span><span>Mnemosyne</span></a>
+    <div class="navlinks">
+      <a href="#features">Features</a>
+      <a href="#flow">Skill Loop</a>
+      <a href="#start">Quick Start</a>
+      <a href="https://github.com/nianpangzhi233/Mnemosyne-AI-Memory">GitHub</a>
+    </div>
+  </nav>
+
+  <main id="top" class="shell">
+    <section class="hero">
+      <div>
+        <div class="eyebrow">Bionic memory for AI agents</div>
+        <h1>Give your AI a brain that survives the next session.</h1>
+        <p class="lead">Mnemosyne is a local-first memory system with knowledge graph retrieval, predictive validation, dream consolidation, and governed skill evolution through MCP.</p>
+        <div class="cta">
+          <a class="button primary" href="https://github.com/nianpangzhi233/Mnemosyne-AI-Memory">Star on GitHub</a>
+          <a class="button" href="https://github.com/nianpangzhi233/Mnemosyne-AI-Memory#quick-start">Read the docs</a>
+        </div>
+      </div>
+      <div class="terminal" aria-label="Quick start terminal">
+        <div class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+        <pre><code>git clone https://github.com/nianpangzhi233/Mnemosyne-AI-Memory.git
+cd Mnemosyne-AI-Memory
+python setup.py
+
+python scripts/graph_write.py --content "gzip bodies must be decompressed" --principle "check Content-Encoding first"
+python scripts/graph_query.py --hybrid-search "request body parse failure" --layer L0
+python scripts/graph_dream.py --full</code></pre>
+      </div>
+    </section>
+
+    <section id="features">
+      <div class="section-title">
+        <h2>Not a diary. Not just RAG.</h2>
+        <p>Mnemosyne treats experience as living knowledge: it can be searched, contradicted, decayed, consolidated, and eventually crystallized into reusable skills.</p>
+      </div>
+      <div class="grid">
+        <article class="card"><span class="pill">GraphRAG</span><strong>Knowledge graph + vector search</strong><p>Hybrid, precise, creative, vector, and keyword search across semantic, causal, temporal, and entity dimensions.</p></article>
+        <article class="card"><span class="pill">Prediction</span><strong>Memory that knows when it applies</strong><p>Preconditions and predicted outcomes let memories warn the agent before repeating old mistakes.</p></article>
+        <article class="card"><span class="pill">Dream</span><strong>Automatic consolidation</strong><p>Fast/Slow dream cycles discover relations, decay weak memories, and keep the graph clean.</p></article>
+        <article class="card"><span class="pill">Skill Memory</span><strong>Skills with evidence</strong><p>Experience clusters grow into skills only after live tests, feedback, and governance checks.</p></article>
+        <article class="card"><span class="pill">MCP</span><strong>Agent-native integration</strong><p>Use memory_write, memory_search, memory_inject, and skill tools from any MCP-compatible AI client.</p></article>
+        <article class="card"><span class="pill">Dashboard</span><strong>Observable by default</strong><p>Inspect memory health, search results, graph shape, dream logs, and skill evidence in Streamlit.</p></article>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-title">
+        <h2>Visible by design.</h2>
+        <p>The dashboard and architecture view are part of the product story, not decoration. Memory systems need evidence people can inspect.</p>
+      </div>
+      <div class="split">
+        <img src="assets/architecture.svg" alt="Mnemosyne architecture" style="width:100%; border-radius:24px; border:1px solid var(--line);">
+        <img src="assets/dashboard-preview.svg" alt="Mnemosyne dashboard preview" style="width:100%; border-radius:24px; border:1px solid var(--line);">
+      </div>
+    </section>
+
+    <section id="flow">
+      <div class="section-title">
+        <h2>Skills evolve with gates.</h2>
+        <p>Prompts are easy to write and easy to trust too much. Mnemosyne keeps a conservative evidence flow before default injection.</p>
+      </div>
+      <div class="flow">
+        <div class="step"><span>01</span><p>Experience cluster becomes an embryo.</p></div>
+        <div class="step"><span>02</span><p>Draft skill is generated and mirrored to disk.</p></div>
+        <div class="step"><span>03</span><p>Darwin-style live tests compare baseline vs with-skill.</p></div>
+        <div class="step"><span>04</span><p>Feedback tracks success, miss, trigger mismatch, and misleading output.</p></div>
+        <div class="step"><span>05</span><p>Only low-risk stable skills enter default injection.</p></div>
+      </div>
+    </section>
+
+    <section id="start" class="split">
+      <div class="quote"><p>Built for people who keep teaching an AI the same lesson and are tired of watching it forget.</p></div>
+      <div class="card">
+        <span class="pill">Local first</span>
+        <strong>Try it in five minutes</strong>
+        <p>Python 3.10+, SQLite, local embeddings, optional LLM review, REST API, MCP server, CLI, and dashboard. No external service is required for the core path.</p>
+        <div class="cta"><a class="button primary" href="https://github.com/nianpangzhi233/Mnemosyne-AI-Memory#quick-start">Get started</a></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="shell">
+    MIT licensed · Inspired by cognitive memory, GraphRAG, predictive coding, and practical agent workflows.
+  </footer>
+</body>
+</html>

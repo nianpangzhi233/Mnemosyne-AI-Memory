@@ -10,12 +10,28 @@ Bionic Experience & Memory System — Knowledge Graph + Vector Search + Predicti
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![MCP Compatible](https://img.shields.io/badge/MCP-compatible-purple?style=flat-square)](https://modelcontextprotocol.io/)
 [![Version](https://img.shields.io/badge/version-7.0.0-black?style=flat-square)](CHANGELOG.md)
+[![CI](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/actions/workflows/ci.yml/badge.svg)](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/actions/workflows/ci.yml)
+[![Pages](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/actions/workflows/pages.yml/badge.svg)](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/actions/workflows/pages.yml)
 [![Search](https://img.shields.io/badge/search-hybrid%20%7C%20precise%20%7C%20creative-orange?style=flat-square)](#knowledge-graph--multi-dimensional-retrieval)
 [![Memory](https://img.shields.io/badge/memory-predictive%20%2B%20dreaming-8A2BE2?style=flat-square)](#predictive-memory)
 
-[中文文档](docs/README_CN.md) · [Releases](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/releases)
+[中文文档](docs/README_CN.md) · [Project Site](https://nianpangzhi233.github.io/Mnemosyne-AI-Memory/) · [Releases](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/releases)
 
 </div>
+
+<p align="center">
+  <img src="assets/hero.svg" alt="Mnemosyne hero" width="100%" />
+</p>
+
+<p align="center">
+  <strong>For AI agents that should remember what matters, dream what connects, and grow skills that survive the next session.</strong>
+</p>
+
+<p align="center">
+  <a href="https://nianpangzhi233.github.io/Mnemosyne-AI-Memory/">Live demo / project page</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#skill-memory-system">Skill evolution</a>
+</p>
 
 ---
 
@@ -29,6 +45,23 @@ This isn't a bug, it's by design — every conversation starts from a blank slat
 
 **Mnemosyne fixes this.** Not a file store, not a diary, not keyword matching. It's a **living knowledge graph** — like a human brain that associates, forgets, and dreams.
 
+### Why it is different
+
+- Memory is not append-only. It can verify, contradict, decay, and evolve.
+- Retrieval is not one-dimensional. It combines vector search, keyword search, graph traversal, and tag filtering.
+- Skills are not just prompts. They are tested, governed artifacts with evidence, feedback, and promotion rules.
+- It ships with a dashboard, REST API, MCP server, and a one-command installer.
+
+### Visual overview
+
+<p align="center">
+  <img src="assets/architecture.svg" alt="Mnemosyne architecture" width="100%" />
+</p>
+
+<p align="center">
+  <img src="assets/dashboard-preview.svg" alt="Mnemosyne dashboard preview" width="100%" />
+</p>
+
 ---
 
 ## Quick Start
@@ -38,6 +71,16 @@ git clone https://github.com/nianpangzhi233/Mnemosyne-AI-Memory.git
 cd Mnemosyne-AI-Memory
 python setup.py
 ```
+
+Start the full stack in three shells:
+
+```bash
+python scripts/api/start_api.py --port 8979
+streamlit run scripts/dashboard/app.py --server.port 8501
+python scripts/graph_dream.py --full
+```
+
+If you only want the main flow, run `python setup.py` first and then use `graph_write.py`, `graph_query.py`, and `graph_dream.py`.
 
 ```python
 # Write an experience
@@ -128,10 +171,22 @@ v6.1 optimizes Dream around a three-layer biomimetic architecture:
 | REM sleep | Incremental `similar_to` and `contradicts` discovery |
 | Prefrontal cortex | Optional LLM-assisted contradiction judgment and review |
 
-Runs automatically at 3 AM and noon daily. Or trigger manually:
+Runs automatically at 3 AM, noon, and 5 PM daily. Or trigger manually:
 
 ```bash
 python scripts/graph_dream.py --full
+```
+
+The background skill daemon extends this with a post-dream skill loop:
+
+- scan new `embryo` and `needs_revision` skills after each full dream run
+- run up to 2 bilateral evolution rounds per candidate
+- record trial feedback automatically
+- auto-promote only low-risk skills after 3 consecutive successful trials
+- keep medium/high-risk skills in a pending-approval state
+
+```bash
+skill-daemon.cmd
 ```
 
 ### Skill Memory System
@@ -237,6 +292,9 @@ python scripts/graph_audit.py
 python scripts/evaluate_skill.py \
   --skill-id <skill-node-id> \
   --config configs/skill-eval.local-gateway.example.json
+
+# Run the skill evidence-flow daemon
+skill-daemon.cmd
 ```
 
 `evaluate_skill.py` is a thin adapter. The reusable flow lives in `core.skill_evolution.SkillEvolutionRunner`, and provider-specific execution lives in `core.runners`. Do not put real API keys in example configs; use environment variables such as `MNEMOSYNE_LLM_API_KEY` for private endpoints.
@@ -251,7 +309,8 @@ streamlit run scripts/dashboard/app.py --server.port 8501
 
 | Page | Features |
 |------|----------|
-| Dashboard | Node/edge stats, type distribution, top memories |
+| Dashboard | Control console, quick search, health metrics, recent writes, audit signals |
+| Skills | Skill catalog, evidence flow, injection status, audit flags |
 | Search | Search + L0→L1→L2 progressive expand |
 | Graph | D3.js force-directed graph (zoom, drag, type coloring) |
 | Dream Log | Fast/Slow dream runs, phase timing, click to expand details |
@@ -340,6 +399,24 @@ Runs on pure rules by default — no LLM needed. For smarter review, copy `llm_c
 - Optional: `faiss-cpu` for faster vector search; numpy fallback is built in
 - Fully local, no external services required
 
+## How Mnemosyne Compares
+
+| Capability | Plain prompt memory | Vector DB / RAG | Mnemosyne |
+|------------|---------------------|-----------------|-----------|
+| Remembers across sessions | Manual | Yes | Yes |
+| Knows when a memory applies | No | Usually no | `precondition` + predictive validation |
+| Handles contradictions | No | Usually manual | `contradicts` edges + confidence decay |
+| Consolidates automatically | No | No | Fast/Slow dream pipeline |
+| Grows reusable agent skills | No | No | Governed Skill Memory flow |
+| Agent integration | Copy/paste | App-specific | MCP + REST + CLI |
+
+## Community
+
+- [Roadmap](ROADMAP.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security Policy](SECURITY.md)
+- [Open Source Launch Checklist](docs/open-source-launch.md)
+
 ## License
 
 [MIT](LICENSE)
@@ -358,6 +435,6 @@ Inspired by: [OpenViking](https://github.com/bytedance/OpenViking) (L0/L1/L2 lay
 
 <div align="center">
 
-**[v7.0 Skill Memory Blueprint →](docs/v7.0-skill-memory-system.md)** · **[v7.1 Bilateral Evolution →](docs/v7.1-bilateral-skill-evolution.md)** · **[v7.2 Evidence Flow →](docs/v7.2-skill-evidence-flow.md)** · **[v7.2 Dev Plan →](docs/v7.2-development-plan.md)** · **[Changelog →](CHANGELOG.md)**
+**[v7.0 Skill Memory Blueprint →](docs/v7.0-skill-memory-system.md)** · **[v7.1 Bilateral Evolution →](docs/v7.1-bilateral-skill-evolution.md)** · **[v7.2 Evidence Flow →](docs/v7.2-skill-evidence-flow.md)** · **[v7.2 Release Notes →](docs/releases/v7.2.0.md)** · **[Changelog →](CHANGELOG.md)**
 
 </div>

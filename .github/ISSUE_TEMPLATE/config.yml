@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Roadmap
+    url: https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/blob/main/ROADMAP.md
+    about: Check planned work before opening a feature request.
+  - name: Security policy
+    url: https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/blob/main/SECURITY.md
+    about: Do not post secrets, private memory databases, or API keys in public issues.

@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Mnemosyne Dashboard Preview</title>
+  <desc id="desc">A stylized mock preview of the Mnemosyne dashboard.</desc>
+  <rect width="1600" height="900" rx="28" fill="#08111f"/>
+  <g font-family="Segoe UI, Arial, sans-serif">
+    <rect x="44" y="32" width="1512" height="96" rx="22" fill="#111a2c" stroke="#32415f"/>
+    <text x="76" y="88" fill="#eef4ff" font-size="26" font-weight="700">Mnemosyne Dashboard</text>
+    <text x="1260" y="88" fill="#9fb0d2" font-size="18">recent writes · graph health · dream status</text>
+
+    <rect x="44" y="152" width="400" height="170" rx="24" fill="#111a2c" stroke="#32415f"/>
+    <text x="74" y="198" fill="#75d7ff" font-size="18" font-weight="700">Memory health</text>
+    <text x="74" y="245" fill="#eef4ff" font-size="44" font-weight="800">352</text>
+    <text x="74" y="284" fill="#9fb0d2" font-size="18">nodes with graph-backed recall</text>
+
+    <rect x="468" y="152" width="400" height="170" rx="24" fill="#111a2c" stroke="#32415f"/>
+    <text x="498" y="198" fill="#8d7cff" font-size="18" font-weight="700">Dream status</text>
+    <text x="498" y="245" fill="#eef4ff" font-size="44" font-weight="800">PASS</text>
+    <text x="498" y="284" fill="#9fb0d2" font-size="18">last consolidation completed cleanly</text>
+
+    <rect x="892" y="152" width="660" height="170" rx="24" fill="#111a2c" stroke="#32415f"/>
+    <text x="922" y="198" fill="#ffd166" font-size="18" font-weight="700">Skill loop</text>
+    <text x="922" y="236" fill="#eef4ff" font-size="24" font-weight="700">candidates: 4 · processed: 3 · mode: llm</text>
+    <text x="922" y="276" fill="#9fb0d2" font-size="18">rounds: 2 per candidate · conservative promotion gate</text>
+
+    <rect x="44" y="350" width="994" height="496" rx="24" fill="#111a2c" stroke="#32415f"/>
+    <text x="74" y="396" fill="#eef4ff" font-size="22" font-weight="700">Recent writes</text>
+    <rect x="74" y="426" width="934" height="72" rx="18" fill="#162139"/>
+    <rect x="74" y="514" width="934" height="72" rx="18" fill="#162139"/>
+    <rect x="74" y="602" width="934" height="72" rx="18" fill="#162139"/>
+    <text x="100" y="470" fill="#eef4ff" font-size="18">gzip request body must be decompressed before JSON.parse()</text>
+    <text x="100" y="558" fill="#eef4ff" font-size="18">torch 2.6.0 is the stable choice on Windows</text>
+    <text x="100" y="646" fill="#eef4ff" font-size="18">post-dream skill loop ran with 2 evolution rounds</text>
+
+    <rect x="1070" y="350" width="482" height="496" rx="24" fill="#111a2c" stroke="#32415f"/>
+    <text x="1100" y="396" fill="#eef4ff" font-size="22" font-weight="700">Graph & audit</text>
+    <circle cx="1290" cy="560" r="120" fill="none" stroke="#75d7ff" stroke-width="8" stroke-opacity="0.55"/>
+    <circle cx="1235" cy="510" r="28" fill="#8d7cff"/>
+    <circle cx="1365" cy="510" r="28" fill="#75d7ff"/>
+    <circle cx="1320" cy="640" r="28" fill="#ffd166"/>
+    <path d="M1235 510 L1365 510 L1320 640 Z" fill="none" stroke="#dce8ff" stroke-opacity="0.45" stroke-width="4"/>
+    <text x="1100" y="756" fill="#9fb0d2" font-size="18">Clear observability makes the system demo-ready.</text>
+  </g>
+</svg>

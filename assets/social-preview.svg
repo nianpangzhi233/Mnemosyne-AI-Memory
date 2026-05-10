@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="836" viewBox="0 0 1600 836" role="img" aria-labelledby="title desc">
+  <title id="title">Mnemosyne Social Preview</title>
+  <desc id="desc">A social preview banner for the Mnemosyne project.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#060a13"/>
+      <stop offset="100%" stop-color="#13203a"/>
+    </linearGradient>
+    <radialGradient id="glow1" cx="25%" cy="22%" r="42%">
+      <stop offset="0%" stop-color="#8d7cff" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#8d7cff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="72%" cy="68%" r="40%">
+      <stop offset="0%" stop-color="#75d7ff" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#75d7ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1600" height="836" fill="url(#bg)"/>
+  <rect width="1600" height="836" fill="url(#glow1)"/>
+  <rect width="1600" height="836" fill="url(#glow2)"/>
+
+  <g opacity="0.15" stroke="#cfe3ff" stroke-width="2" fill="none">
+    <path d="M120 610 C270 510, 330 420, 430 300 S650 150, 780 236 S990 420, 1130 296 S1350 170, 1490 250"/>
+    <path d="M90 690 C260 580, 420 540, 540 410 S820 200, 980 340 S1220 520, 1490 390"/>
+  </g>
+
+  <g transform="translate(122 120)">
+    <text x="0" y="0" fill="#eef4ff" font-family="Segoe UI, Arial, sans-serif" font-size="84" font-weight="800" letter-spacing="-2">Mnemosyne</text>
+    <text x="0" y="76" fill="#b8c8ef" font-family="Segoe UI, Arial, sans-serif" font-size="30">Bionic memory for AI agents</text>
+    <text x="0" y="126" fill="#8ea4d0" font-family="Segoe UI, Arial, sans-serif" font-size="24">GraphRAG · Predictive Memory · Dream Consolidation · Governed Skill Evolution · MCP</text>
+  </g>
+
+  <g transform="translate(118 318)">
+    <rect x="0" y="0" width="420" height="280" rx="28" fill="#10182a" fill-opacity="0.86" stroke="#6b84c7" stroke-opacity="0.34"/>
+    <text x="32" y="52" fill="#75d7ff" font-family="Segoe UI, Arial, sans-serif" font-size="19" font-weight="700">Why it stands out</text>
+    <text x="32" y="98" fill="#eaf2ff" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="700">Memory that can verify,</text>
+    <text x="32" y="136" fill="#eaf2ff" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="700">contradict, dream, and grow.</text>
+    <text x="32" y="188" fill="#b6c5e6" font-family="Segoe UI, Arial, sans-serif" font-size="20">Built for agents that should keep useful knowledge</text>
+    <text x="32" y="220" fill="#b6c5e6" font-family="Segoe UI, Arial, sans-serif" font-size="20">without turning into a prompt dump.</text>
+  </g>
+
+  <g transform="translate(614 256)">
+    <rect x="0" y="0" width="870" height="400" rx="30" fill="#08111f" fill-opacity="0.88" stroke="#6b84c7" stroke-opacity="0.35"/>
+    <text x="34" y="54" fill="#eaf2ff" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700">Core loop</text>
+    <g transform="translate(36 92)" font-family="Segoe UI, Arial, sans-serif">
+      <rect x="0" y="0" width="150" height="68" rx="18" fill="#1a2440"/>
+      <text x="24" y="29" fill="#75d7ff" font-size="18" font-weight="700">Write</text>
+      <text x="24" y="51" fill="#b6c5e6" font-size="13">Experience node</text>
+      <text x="176" y="42" fill="#87a0d7" font-size="34">→</text>
+      <rect x="220" y="0" width="150" height="68" rx="18" fill="#1a2440"/>
+      <text x="244" y="29" fill="#75d7ff" font-size="18" font-weight="700">Recall</text>
+      <text x="244" y="51" fill="#b6c5e6" font-size="13">Hybrid retrieval</text>
+      <text x="396" y="42" fill="#87a0d7" font-size="34">→</text>
+      <rect x="440" y="0" width="150" height="68" rx="18" fill="#1a2440"/>
+      <text x="462" y="29" fill="#75d7ff" font-size="18" font-weight="700">Dream</text>
+      <text x="462" y="51" fill="#b6c5e6" font-size="13">Consolidate</text>
+      <text x="616" y="42" fill="#87a0d7" font-size="34">→</text>
+      <rect x="660" y="0" width="150" height="68" rx="18" fill="#1a2440"/>
+      <text x="682" y="29" fill="#75d7ff" font-size="18" font-weight="700">Evolve</text>
+      <text x="682" y="51" fill="#b6c5e6" font-size="13">Skill evidence</text>
+    </g>
+    <g transform="translate(36 198)" fill="#dce8ff" font-family="Segoe UI, Arial, sans-serif" font-size="18">
+      <text x="0" y="0">Hybrid retrieval keeps the signal tight.</text>
+      <text x="0" y="36">Dream cycles keep the graph clean.</text>
+      <text x="0" y="72">Skill gating prevents accidental trust inflation.</text>
+    </g>
+  </g>
+</svg>

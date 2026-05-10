@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="920" viewBox="0 0 1600 920" role="img" aria-labelledby="title desc">
+  <title id="title">Mnemosyne Architecture</title>
+  <desc id="desc">A diagram showing Mnemosyne's write, retrieval, dream, and skill evolution flow.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#07101c"/>
+      <stop offset="100%" stop-color="#121c33"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="920" rx="28" fill="url(#bg)"/>
+  <g font-family="Segoe UI, Arial, sans-serif" fill="#eef4ff">
+    <text x="78" y="88" font-size="42" font-weight="800">Mnemosyne Architecture</text>
+    <text x="78" y="128" font-size="20" fill="#b8c8ef">A local-first agent memory loop: write, retrieve, dream, evolve, and surface evidence.</text>
+  </g>
+
+  <g font-family="Segoe UI, Arial, sans-serif">
+    <rect x="72" y="194" width="330" height="150" rx="24" fill="#16223d" stroke="#6b84c7" stroke-opacity="0.4"/>
+    <text x="100" y="240" fill="#75d7ff" font-size="20" font-weight="700">Input channels</text>
+    <text x="100" y="274" fill="#eaf2ff" font-size="18">MCP tools · CLI · API · log scanner</text>
+    <text x="100" y="306" fill="#b6c5e6" font-size="16">Experiences, prompts, and operational traces</text>
+
+    <rect x="484" y="194" width="330" height="150" rx="24" fill="#16223d" stroke="#6b84c7" stroke-opacity="0.4"/>
+    <text x="512" y="240" fill="#75d7ff" font-size="20" font-weight="700">Memory core</text>
+    <text x="512" y="274" fill="#eaf2ff" font-size="18">Graph store + embeddings + FTS</text>
+    <text x="512" y="306" fill="#b6c5e6" font-size="16">Preconditions, contradictions, decay, traversal</text>
+
+    <rect x="896" y="194" width="330" height="150" rx="24" fill="#16223d" stroke="#6b84c7" stroke-opacity="0.4"/>
+    <text x="924" y="240" fill="#75d7ff" font-size="20" font-weight="700">Dream pipeline</text>
+    <text x="924" y="274" fill="#eaf2ff" font-size="18">Fast path + slow path</text>
+    <text x="924" y="306" fill="#b6c5e6" font-size="16">Consolidation, pruning, association, review</text>
+
+    <rect x="1260" y="194" width="268" height="150" rx="24" fill="#16223d" stroke="#6b84c7" stroke-opacity="0.4"/>
+    <text x="1288" y="240" fill="#75d7ff" font-size="20" font-weight="700">Skill loop</text>
+    <text x="1288" y="274" fill="#eaf2ff" font-size="18">Embryo → approved</text>
+    <text x="1288" y="306" fill="#b6c5e6" font-size="16">Evidence flow + feedback + promotion gates</text>
+
+    <path d="M402 268 L476 268" stroke="#75d7ff" stroke-width="4" marker-end="url(#arrow)"/>
+    <path d="M814 268 L888 268" stroke="#75d7ff" stroke-width="4" marker-end="url(#arrow)"/>
+    <path d="M1226 268 L1252 268" stroke="#75d7ff" stroke-width="4" marker-end="url(#arrow)"/>
+
+    <rect x="306" y="490" width="420" height="200" rx="24" fill="#16223d" stroke="#8d7cff" stroke-opacity="0.5"/>
+    <text x="336" y="536" fill="#8d7cff" font-size="20" font-weight="700">Retrieval modes</text>
+    <text x="336" y="572" fill="#eaf2ff" font-size="18">hybrid · precise · creative · vector · keyword</text>
+    <text x="336" y="606" fill="#b6c5e6" font-size="16">Graph dimension filters, tags, and context injection</text>
+    <text x="336" y="640" fill="#b6c5e6" font-size="16">Optimized for quick relevance and deeper recall</text>
+
+    <rect x="830" y="490" width="470" height="200" rx="24" fill="#16223d" stroke="#ffd166" stroke-opacity="0.5"/>
+    <text x="860" y="536" fill="#ffd166" font-size="20" font-weight="700">Dashboard + observability</text>
+    <text x="860" y="572" fill="#eaf2ff" font-size="18">Dashboard · Dream Log · Skills · Graph · Search</text>
+    <text x="860" y="606" fill="#b6c5e6" font-size="16">Useful for demos, debugging, and release confidence</text>
+    <text x="860" y="640" fill="#b6c5e6" font-size="16">Makes the memory system visible instead of magical</text>
+  </g>
+
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#75d7ff"/>
+    </marker>
+  </defs>
+</svg>

@@ -10,12 +10,28 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![MCP Compatible](https://img.shields.io/badge/MCP-compatible-purple?style=flat-square)](https://modelcontextprotocol.io/)
 [![Version](https://img.shields.io/badge/version-7.0.0-black?style=flat-square)](../CHANGELOG.md)
+[![CI](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/actions/workflows/ci.yml/badge.svg)](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/actions/workflows/ci.yml)
+[![Pages](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/actions/workflows/pages.yml/badge.svg)](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/actions/workflows/pages.yml)
 [![Search](https://img.shields.io/badge/search-hybrid%20%7C%20precise%20%7C%20creative-orange?style=flat-square)](#知识图谱--多维检索)
 [![Memory](https://img.shields.io/badge/memory-predictive%20%2B%20dreaming-8A2BE2?style=flat-square)](#预测式记忆)
 
-[English](../README.md) · [Releases](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/releases)
+[English](../README.md) · [Project Site](https://nianpangzhi233.github.io/Mnemosyne-AI-Memory/) · [Releases](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/releases)
 
 </div>
+
+<p align="center">
+  <img src="../assets/hero.svg" alt="Mnemosyne hero" width="100%" />
+</p>
+
+<p align="center">
+  <strong>给 AI 一个真正会记、会梦、会成长的长期记忆系统。</strong>
+</p>
+
+<p align="center">
+  <a href="https://nianpangzhi233.github.io/Mnemosyne-AI-Memory/">在线展示页</a> ·
+  <a href="#5-分钟上手">快速开始</a> ·
+  <a href="#skill-memory-system技能记忆">技能进化</a>
+</p>
 
 ---
 
@@ -29,6 +45,23 @@ AI 助手有个致命缺陷：**它记不住事。**
 
 **Mnemosyne 解决这个问题。** 不是文件存储，不是日记本，不是关键词匹配。是一张**活的知识图谱**——像人脑一样，会联想、会遗忘、会做梦。
 
+### 和常见方案有什么不一样
+
+- 不是单纯 RAG。它会做预测式记忆、关系推理和梦后整合。
+- 不是简单数据库。它把经验当成有生命周期的知识节点来治理。
+- 不是只有记忆。它还把可复用能力做成了可测试、可审批的 Skill。
+- 不是纯后端库。它有 API、Dashboard、MCP、CLI 和一键安装入口。
+
+### 可视化概览
+
+<p align="center">
+  <img src="../assets/architecture.svg" alt="Mnemosyne architecture" width="100%" />
+</p>
+
+<p align="center">
+  <img src="../assets/dashboard-preview.svg" alt="Mnemosyne dashboard preview" width="100%" />
+</p>
+
 ---
 
 ## 5 分钟上手
@@ -37,6 +70,14 @@ AI 助手有个致命缺陷：**它记不住事。**
 git clone https://github.com/nianpangzhi233/Mnemosyne-AI-Memory.git
 cd Mnemosyne-AI-Memory
 python setup.py
+```
+
+如果想先看完整效果，起三个窗口：
+
+```bash
+python scripts/api/start_api.py --port 8979
+streamlit run scripts/dashboard/app.py --server.port 8501
+python scripts/graph_dream.py --full
 ```
 
 ```python
@@ -128,10 +169,22 @@ v6.1 的 Dream 围绕三层仿生架构优化：
 | REM 睡眠 | 增量发现 `similar_to` 和 `contradicts` |
 | 前额叶 | 可选 LLM 辅助矛盾判断和审查 |
 
-每天凌晨 3 点和中午 12 点自动运行。也可以手动触发：
+每天凌晨 3 点、中午 12 点和下午 5 点自动运行。也可以手动触发：
 
 ```bash
 python scripts/graph_dream.py --full
+```
+
+后台的 `skill-daemon.cmd` 会在每次完整做梦后继续跑一轮技能闭环：
+
+- 自动检查新 `embryo` 和 `needs_revision` 技能
+- 每个候选最多自动进化 2 轮
+- 自动记录 trial 反馈
+- 只有低风险且连续 3 次试用成功的技能才会自动入池
+- 中风险和高风险技能只会进入待审批状态
+
+```bash
+skill-daemon.cmd
 ```
 
 ### Skill Memory System（技能记忆）
@@ -358,6 +411,6 @@ Mnemosyne 模拟人脑的几种关键记忆机制：
 
 <div align="center">
 
-**[v7.0 Skill Memory Blueprint →](v7.0-skill-memory-system.md)** · **[v7.1 双边进化 →](v7.1-bilateral-skill-evolution.md)** · **[v7.2 证据回流 →](v7.2-skill-evidence-flow.md)** · **[v7.2 开发计划 →](v7.2-development-plan.md)** · **[Changelog →](../CHANGELOG.md)**
+**[v7.0 Skill Memory Blueprint →](v7.0-skill-memory-system.md)** · **[v7.1 双边进化 →](v7.1-bilateral-skill-evolution.md)** · **[v7.2 证据回流 →](v7.2-skill-evidence-flow.md)** · **[v7.2 Release Notes →](releases/v7.2.0.md)** · **[Changelog →](../CHANGELOG.md)**
 
 </div>
