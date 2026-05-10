@@ -4,6 +4,8 @@ from dashboard.style import KIMI_BLUE, KIMI_DARK, KIMI_GRAY
 
 store = get_store()
 
+TIER_LABELS = {"hot": "热", "warm": "温", "cold": "冷"}
+
 lang = st.session_state.get("lang", "zh")
 T = {
     "zh": {
@@ -23,21 +25,22 @@ T = {
 }[lang]
 
 st.title(T["title"])
+st.caption("查记忆的时候尽量用中文关键词，命中率更稳。")
 
 col_q, col_mode, col_layer, col_top = st.columns([4, 1.2, 1, 0.8])
 with col_q:
-    query = st.text_input("Query", placeholder=T["enter_query"], label_visibility="collapsed")
+    query = st.text_input("关键词", placeholder=T["enter_query"], label_visibility="collapsed")
 with col_mode:
-    mode = st.selectbox("Mode", ["hybrid", "vector", "keyword"], label_visibility="collapsed")
+    mode = st.selectbox("模式", ["混合搜索", "向量搜索", "关键词搜索"], label_visibility="collapsed")
 with col_layer:
-    display_layer = st.selectbox("Layer", ["L0", "L1", "L2"], index=0, label_visibility="collapsed")
+    display_layer = st.selectbox("层级", ["L0", "L1", "L2"], index=0, label_visibility="collapsed")
 with col_top:
-    top_k = st.selectbox("Top", [5, 10, 20], label_visibility="collapsed")
+    top_k = st.selectbox("数量", [5, 10, 20], label_visibility="collapsed")
 
 if query:
-    if mode == "vector":
+    if mode == "向量搜索":
         results = store.search_by_vector(query, top=top_k, layer="L2")
-    elif mode == "keyword":
+    elif mode == "关键词搜索":
         results = store.search_by_keyword(query, top=top_k, layer="L2")
     else:
         results = store.search_hybrid(query, top=top_k, layer="L2")
@@ -60,8 +63,8 @@ if query:
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                 <div style="display:flex; align-items:center; gap:8px;">
                     <span style="font-weight:600; color:{KIMI_DARK};">#{i+1}</span>
-                    <span class="kimi-badge {badge_cls}">{tier}</span>
-                    <span style="font-size:0.75rem; color:{KIMI_GRAY};">sim={sim:.3f}</span>
+                    <span class="kimi-badge {badge_cls}">{TIER_LABELS.get(tier, tier)}</span>
+                    <span style="font-size:0.75rem; color:{KIMI_GRAY};">相似度={sim:.3f}</span>
                 </div>
                 <span style="font-size:0.65rem; color:{KIMI_GRAY}; font-family:monospace;">{node_id[:8]}...</span>
             </div>
@@ -79,7 +82,7 @@ if query:
             <div class="layer-l1">
                 <div style="font-size:0.7rem; color:#af52de; font-weight:600; margin-bottom:4px;">{T['summary']}</div>
                 <div style="font-size:0.85rem;">{overview}</div>
-                {"<div style='font-size:0.75rem; color:" + KIMI_GRAY + "; margin-top:4px;'>" + T['principle'] + ": " + principle + "</div>" if principle else ""}
+                {"<div style='font-size:0.75rem; color:" + KIMI_GRAY + "; margin-top:4px;'>原理：" + principle + "</div>" if principle else ""}
             </div>
             """, unsafe_allow_html=True)
 

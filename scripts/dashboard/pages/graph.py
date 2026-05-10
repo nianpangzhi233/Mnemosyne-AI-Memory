@@ -6,6 +6,36 @@ from dashboard.style import EDGE_COLORS, TYPE_COLORS, KIMI_DARK, KIMI_GRAY
 
 store = get_store()
 
+TIER_LABELS = {"hot": "热", "warm": "温", "cold": "冷"}
+TYPE_LABELS = {
+    "experience": "经验",
+    "correction": "纠正",
+    "strategy": "策略",
+    "raw": "原始片段",
+    "skill": "技能",
+    "skill_feedback": "技能反馈",
+}
+RELATION_LABELS = {
+    "similar_to": "相似",
+    "caused": "导致",
+    "solves": "解决",
+    "contradicts": "纠正/冲突",
+    "transfers_to": "迁移",
+    "is_a": "归类",
+    "evolved_from": "演化自",
+    "verified_by": "验证",
+    "fails_on": "失败样例",
+    "needs_revision": "需修订",
+}
+
+
+def _select_labels(options, label_map, defaults):
+    labels = [label_map.get(option, option) for option in options]
+    default_labels = [label_map.get(option, option) for option in defaults]
+    selected = st.multiselect("", labels, default=default_labels, label_visibility="collapsed")
+    reverse = {label_map.get(option, option): option for option in options}
+    return [reverse[label] for label in selected]
+
 lang = st.session_state.get("lang", "zh")
 T = {
     "zh": {
@@ -23,14 +53,17 @@ T = {
 }[lang]
 
 st.title(T["title"])
+st.caption("图谱页偏工具型，主要用来确认记忆之间的关系。")
 
 col_f1, col_f2 = st.columns([1, 3])
 with col_f1:
     st.markdown(f"### {T['filters']}")
-    focus = st.text_input(T["focus_node"], placeholder="...")
+    focus = st.text_input(T["focus_node"], placeholder="输入节点 ID")
     max_nodes = st.slider(T["max_nodes"], 10, 200, 50)
-    show_tiers = st.multiselect(T["tiers"], ["hot", "warm", "cold"], default=["hot", "warm"])
-    show_types = st.multiselect(T["types"], ["experience", "correction", "strategy", "raw"], default=["experience", "correction", "strategy"])
+    st.caption(T["tiers"])
+    show_tiers = _select_labels(["hot", "warm", "cold"], TIER_LABELS, ["hot", "warm"])
+    st.caption(T["types"])
+    show_types = _select_labels(["experience", "correction", "strategy", "raw", "skill", "skill_feedback"], TYPE_LABELS, ["experience", "correction", "strategy"])
 
 if not show_tiers or not show_types:
     st.warning(T["select_one"])
@@ -64,7 +97,9 @@ for n in filtered:
         "id": n["id"],
         "label": (n.get("abstract") or n.get("content") or "")[:40],
         "type": n.get("type", "unknown"),
+        "typeLabel": TYPE_LABELS.get(n.get("type", "unknown"), n.get("type", "unknown")),
         "tier": n.get("tier", "hot"),
+        "tierLabel": TIER_LABELS.get(n.get("tier", "hot"), n.get("tier", "hot")),
         "score": round(n.get("decay_score", 0), 2),
         "principle": n.get("principle", ""),
     })
@@ -75,6 +110,7 @@ for e in graph_edges:
         "source": e["from_id"],
         "target": e["to_id"],
         "type": e["relation_type"],
+        "typeLabel": RELATION_LABELS.get(e["relation_type"], e["relation_type"]),
         "weight": e.get("weight", 0.5),
     })
 
@@ -179,7 +215,7 @@ html = f"""
         .on("mouseover", function(e, d) {{
             d3.select(this).attr("stroke-width", 3).attr("stroke", "#0071e3");
             tooltip.style("opacity", 1).html(
-                "<b>" + d.type + "</b> [" + d.tier + "]<br>" +
+                "<b>" + d.typeLabel + "</b> [" + d.tierLabel + "]<br>" +
                 d.label + (d.principle ? "<br><i>" + d.principle + "</i>" : "")
             );
         }})
@@ -234,4 +270,4 @@ with col_f2:
     for idx, (etype, ecolor) in enumerate(EDGE_COLORS.items()):
         count = sum(1 for e in graph_edges if e["relation_type"] == etype)
         with cols_l[idx]:
-            st.markdown(f'<span style="color:{ecolor}; font-weight:600;">● {etype}</span> <span style="color:#6e6e73;">({count})</span>', unsafe_allow_html=True)
+            st.markdown(f'<span style="color:{ecolor}; font-weight:600;">● {RELATION_LABELS.get(etype, etype)}</span> <span style="color:#6e6e73;">({count})</span>', unsafe_allow_html=True)

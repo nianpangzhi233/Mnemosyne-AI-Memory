@@ -40,6 +40,7 @@ REQUIRED_PACKAGES = [
     ("sentence_transformers", "sentence-transformers"),
     ("numpy", "numpy"),
     ("apscheduler", "apscheduler"),
+    ("streamlit", "streamlit"),
 ]
 
 

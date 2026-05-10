@@ -2,10 +2,113 @@ import streamlit as st
 import json
 import sqlite3
 from pathlib import Path
+from datetime import datetime
 from dashboard.store import get_store
 from dashboard.style import KIMI_DARK, KIMI_GRAY
 
 store = get_store()
+
+STATUS_LABELS = {"PASS": "通过", "WARN": "警告", "FAIL": "失败", "unknown": "未知"}
+PHASE_LABELS = {
+    "Snapshot": "快照",
+    "LogScan": "日志扫描",
+    "SimilarTo": "相似关系",
+    "Causal": "因果关系",
+    "Contradicts": "矛盾检测",
+    "Transfers": "迁移关系",
+    "Strategy": "策略提炼",
+    "Covenant": "安全约束",
+    "Decay": "衰减更新",
+    "LLM": "模型复核",
+    "Distill": "经验蒸馏",
+    "Sync": "同步",
+    "Audit": "审计",
+}
+
+
+def phase_display_name(name: str) -> str:
+    if not name:
+        return "未知阶段"
+    for key, label in PHASE_LABELS.items():
+        if key.lower() in name.lower():
+            return label
+    return name
+
+
+def normalize_result(result):
+    if isinstance(result, dict):
+        return result
+    if isinstance(result, str):
+        try:
+            parsed = json.loads(result)
+            return parsed if isinstance(parsed, dict) else {"raw": parsed}
+        except (json.JSONDecodeError, TypeError):
+            return {"raw": result}
+    return {"raw": result}
+
+
+def result_sentence(name: str, result: dict) -> tuple[str, str, str]:
+    label = phase_display_name(name)
+    low = (name or "").lower()
+    status = "完成"
+    tone = "pill-green"
+    detail = "这个阶段完成了，但没有额外变化。"
+
+    if "snapshot" in low or "预" in name:
+        detail = f"开始整理前，图谱里有 {result.get('nodes_before', '?')} 个节点、{result.get('edges_before', '?')} 条边。"
+    elif "logscan" in low or "ɨ" in name or "扫描" in name:
+        added = result.get("added", 0)
+        new_nodes = result.get("new_nodes", 0)
+        detail = f"扫描日志后新增 {added} 条关系，发现 {new_nodes} 个新节点。"
+        if not added and not new_nodes:
+            detail = "扫描日志完成，没有发现需要新增的记忆。"
+            status = "无新增"
+            tone = "pill-gray"
+    elif "similar" in low:
+        added = result.get("added", 0)
+        detail = f"为相近记忆补充了 {added} 条相似关系。" if added else "没有发现新的相似关系。"
+        if not added:
+            status = "无新增"
+            tone = "pill-gray"
+    elif "decay" in low or "˥" in name:
+        updated = result.get("updated", 0)
+        detail = f"重新计算了 {updated} 个记忆节点的热度和衰减分数。"
+    elif "covenant" in low:
+        checked = result.get("checked", 0)
+        vetoed = result.get("vetoed", 0)
+        detail = f"安全约束检查了 {checked} 条关系，否决了 {vetoed} 条可疑关系。"
+        if vetoed:
+            status = "有拦截"
+            tone = "pill-amber"
+    elif "memory.md" in low or "sync" in low or "ͬ" in name:
+        synced = result.get("synced", 0)
+        detail = f"同步了 {synced} 条热记忆到活跃记忆文件。"
+    elif "audit" in low:
+        checked = result.get("checked", result.get("audited", 0))
+        issues = result.get("issues", result.get("vetoed", 0))
+        detail = f"审计了 {checked} 项内容，发现 {issues} 个需要关注的问题。"
+        if issues:
+            status = "需关注"
+            tone = "pill-amber"
+    elif "final" in low or "����" in name or "总结" in name:
+        status_value = result.get("status", "PASS")
+        alerts = result.get("alerts") or []
+        detail = f"整理结束后，图谱有 {result.get('nodes_after', '?')} 个节点、{result.get('edges_after', '?')} 条边。"
+        if alerts:
+            detail += f" 有 {len(alerts)} 条提醒需要查看。"
+            tone = "pill-amber"
+        status = STATUS_LABELS.get(status_value, status_value)
+        if status_value not in {"PASS", "ok", "OK"}:
+            tone = "pill-amber"
+    else:
+        readable = []
+        for key, value in result.items():
+            if key == "raw":
+                continue
+            readable.append(f"{key}={value}")
+        detail = "，".join(readable) if readable else "这个阶段没有记录额外变化。"
+
+    return label, status, tone, detail
 
 lang = st.session_state.get("lang", "zh")
 T = {
@@ -22,9 +125,20 @@ T = {
 }[lang]
 
 st.title(T["title"])
+st.caption("这里记录夜间整理过程，出问题时先看这里，不要猜。")
 
-db_path = Path(__file__).resolve().parent.parent.parent / "graph.db"
-log_db_path = Path(__file__).resolve().parent.parent.parent / "dream_log.db"
+st.markdown(
+    """
+    <script>
+    setTimeout(function(){ window.location.reload(); }, 30000);
+    </script>
+    """,
+    unsafe_allow_html=True,
+)
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+db_path = PROJECT_ROOT / "graph.db"
+log_db_path = PROJECT_ROOT / "dream_log.db"
 
 def get_dream_logs():
     logs = []
@@ -44,6 +158,18 @@ def get_dream_logs():
     return logs
 
 logs = get_dream_logs()
+
+top_cols = st.columns([1, 1, 2])
+with top_cols[0]:
+    if st.button("刷新日志", use_container_width=True):
+        st.rerun()
+with top_cols[1]:
+    st.caption(f"页面刷新：{datetime.now().strftime('%H:%M:%S')}")
+with top_cols[2]:
+    if logs:
+        latest = logs[0]
+        latest_time = (latest.get("started_at") or "")[:19].replace("T", " ")
+        st.caption(f"最新做梦：{latest_time} · {STATUS_LABELS.get(latest.get('status'), latest.get('status'))}")
 
 if not logs:
     st.info(T["no_logs"])
@@ -95,11 +221,11 @@ for log in logs:
         <div style="display:flex; justify-content:space-between; align-items:center;">
             <div>
                 <span style="font-weight:600; font-size:1rem;">🌙 {started}</span>
-                <span class="kimi-badge" style="background:{status_color}20; color:{status_color}; margin-left:8px;">{status}</span>
+                <span class="kimi-badge" style="background:{status_color}20; color:{status_color}; margin-left:8px;">{STATUS_LABELS.get(status, status)}</span>
             </div>
             <div style="display:flex; gap:16px; font-size:0.8rem; color:{KIMI_GRAY};">
-                <span>Nodes: {nodes_before} → {nodes_after} {delta_n}</span>
-                <span>Edges: {edges_before} → {edges_after}</span>
+        <span>节点：{nodes_before} → {nodes_after} {delta_n}</span>
+        <span>边：{edges_before} → {edges_after}</span>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -128,23 +254,44 @@ for log in logs:
                 css_cls = "phase-skip"
                 label = "–"
 
-            cells_html += f'<div class="phase-cell {css_cls}" title="{pname}: {label}">{pname[:3]}</div>'
+            phase_label = PHASE_LABELS.get(pname, pname)
+            cells_html += f'<div class="phase-cell {css_cls}" title="{phase_label}: {label}">{phase_label[:2]}</div>'
 
         st.markdown(f'<div class="phase-bar">{cells_html}</div>', unsafe_allow_html=True)
 
-    expand_key = f"dream_expand_{log.get('id', started)}"
-    if st.button(T["details"], key=expand_key):
-        st.session_state[expand_key] = st.session_state.get(expand_key, 0) + 1
-
-    if st.session_state.get(expand_key, 0) % 2 == 1 and phases_data:
-        for p in phases_data:
-            name = p.get("name", "?")
-            result = p.get("result", {})
-            if isinstance(result, str):
-                try:
-                    result = json.loads(result)
-                except:
-                    result = {"raw": result}
-            st.markdown(f"**{name}**: `{json.dumps(result, ensure_ascii=False)[:120]}`")
+    with st.expander(T["details"], expanded=False):
+        if phases_data:
+            st.markdown('<div class="dream-diary">', unsafe_allow_html=True)
+            for idx, p in enumerate(phases_data, start=1):
+                name = p.get("name", "?")
+                result = normalize_result(p.get("result", {}))
+                phase_name, phase_status, phase_tone, detail = result_sentence(name, result)
+                extra_bits = []
+                if p.get("phase") is not None:
+                    extra_bits.append(f"第 {p.get('phase')} 阶段")
+                if p.get("duration_ms"):
+                    extra_bits.append(f"耗时 {p.get('duration_ms')} ms")
+                if result.get("raw"):
+                    extra_bits.append(f"原始信息：{str(result.get('raw'))[:80]}")
+                extra_line = " · ".join(extra_bits)
+                st.markdown(
+                    f"""
+                    <div class="dream-diary-item">
+                        <div class="dream-diary-index">{idx}</div>
+                        <div>
+                            <div class="dream-diary-title">
+                                <strong>{phase_name}</strong>
+                                <span class="mn-pill {phase_tone}">{phase_status}</span>
+                            </div>
+                            <div class="dream-diary-body">{detail}</div>
+                            {f'<div class="dream-diary-muted">{extra_line}</div>' if extra_line else ''}
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.caption("没有可展开的阶段详情。")
 
     st.markdown("</div>", unsafe_allow_html=True)
