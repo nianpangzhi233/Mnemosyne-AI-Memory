@@ -76,6 +76,15 @@ def _latest_dream():
         conn.close()
 
 
+def _meta_value(key: str):
+    conn = sqlite3.connect(str(Path(__file__).resolve().parent.parent.parent.parent / "graph.db"))
+    try:
+        row = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
 def _metric(label, value, hint="", tone=""):
     st.markdown(
         f"""
@@ -125,6 +134,8 @@ nodes = store.query_nodes()
 edges = store.query_edges("status='active'")
 skills = store.list_skill_artifacts() if hasattr(store, "list_skill_artifacts") else []
 latest_dream = _latest_dream()
+latest_skill_auto_loop_raw = _meta_value("last_skill_auto_loop")
+latest_skill_auto_loop = _safe_json(latest_skill_auto_loop_raw, {}) if latest_skill_auto_loop_raw else {}
 
 node_total = len(nodes)
 edge_total = len(edges)
@@ -273,6 +284,60 @@ with metric_cols[3]:
     _metric("技能", len(skills), f"默认可注入 {len(approved_skills)} 个")
 with metric_cols[4]:
     _metric("审计", len(audit_skills), "需要关注的技能", "color:#cc322b;" if audit_skills else "color:#1f8b4c;")
+
+if latest_skill_auto_loop:
+    evolved_items = latest_skill_auto_loop.get("evolved") or []
+    feedback_items = latest_skill_auto_loop.get("feedback") or []
+    promotion_items = latest_skill_auto_loop.get("promotions") or []
+    error_items = latest_skill_auto_loop.get("errors") or []
+    detail_lines = []
+    for item in evolved_items:
+        detail_lines.append(
+            f"<div class='mn-list-item'><div><strong>{_html(str(item.get('skill_id') or 'unknown'))[:12]}</strong>"
+            f"<small>round {item.get('round')} · decision: {_html(str(item.get('decision') or 'unknown'))}</small></div>"
+            f"<div>{_pill('进化检查', 'pill-blue')}</div></div>"
+        )
+    for item in feedback_items:
+        detail_lines.append(
+            f"<div class='mn-list-item'><div><strong>{_html(str(item.get('skill_id') or 'unknown'))[:12]}</strong>"
+            f"<small>feedback outcome: {_html(str(item.get('outcome') or 'unknown'))}</small></div>"
+            f"<div>{_pill('反馈', 'pill-green')}</div></div>"
+        )
+    for item in promotion_items:
+        detail_lines.append(
+            f"<div class='mn-list-item'><div><strong>{_html(str(item.get('skill_id') or 'unknown'))[:12]}</strong>"
+            f"<small>promotion decision: {_html(str(item.get('decision') or 'unknown'))}</small></div>"
+            f"<div>{_pill('入池门控', 'pill-amber')}</div></div>"
+        )
+    for item in error_items:
+        detail_lines.append(
+            f"<div class='mn-list-item'><div><strong>{_html(str(item.get('skill_id') or 'unknown'))[:12]}</strong>"
+            f"<small>{_html(str(item.get('error') or 'unknown error'))}</small></div>"
+            f"<div>{_pill('错误', 'pill-red')}</div></div>"
+        )
+    details_html = "".join(detail_lines) or '<div class="mn-empty"><div class="emoji">∅</div>本轮没有明细。</div>'
+    st.markdown(
+        f"""
+        <div class="mn-panel" style="margin-top:12px; margin-bottom:0;">
+            <div class="mn-section-title">
+                <h2>最近一次技能后处理</h2><span>daemon 自动闭环</span>
+            </div>
+            <div class="mn-row" style="align-items:flex-start; gap:24px; flex-wrap:wrap;">
+                <div><strong>候选</strong><br>{latest_skill_auto_loop.get('candidates', 0)}</div>
+                <div><strong>处理</strong><br>{latest_skill_auto_loop.get('processed', 0)}</div>
+                <div><strong>运行模式</strong><br>{_html(str(latest_skill_auto_loop.get('runner_mode') or 'unknown'))}</div>
+                <div><strong>进化轮次</strong><br>{len(latest_skill_auto_loop.get('evolved') or [])}</div>
+                <div><strong>反馈</strong><br>{len(latest_skill_auto_loop.get('feedback') or [])}</div>
+                <div><strong>入池结果</strong><br>{len(latest_skill_auto_loop.get('promotions') or [])}</div>
+            </div>
+            <details style="margin-top:14px;">
+                <summary style="cursor:pointer; color:#3b6df6; font-weight:700;">展开候选明细</summary>
+                <div class="mn-list" style="margin-top:12px;">{details_html}</div>
+            </details>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
 

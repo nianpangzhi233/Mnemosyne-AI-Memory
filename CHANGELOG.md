@@ -8,6 +8,7 @@ All notable changes to Mnemosyne will be documented in this file.
 - **Skill Evidence Flow** — added structured `skill_usage_feedback` records, outcome-based feedback, and usage-loop metadata for governed skill learning.
 - **Failure prompt creation** — `memory_skill_feedback` can now turn reproducible failures into `test-prompts.json` entries via `create_test_prompt`.
 - **Approved skill audits** — added store-level audit helpers for sampling and failure-triggered review, including downgrade/deprecation decisions.
+- **Skill daemon** — added a lightweight APScheduler-backed background daemon and Windows launcher for periodic dream cycles and audit scans.
 - **v7.2 migration** — added `scripts/migrate_v71_to_v72.py` and schema support for skill usage feedback.
 - **Evidence-flow docs** — added v7.2 design and development plan documents.
 

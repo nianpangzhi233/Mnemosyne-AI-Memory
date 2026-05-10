@@ -34,6 +34,12 @@
 ## Metadata
 ```json
 {
-  "imported_from": "v7_demo"
+  "imported_from": "v7_demo",
+  "usage_loop": {
+    "audit_failures": 2,
+    "trigger_mismatch_count": 2,
+    "last_audit_at": "2026-05-10T02:07:04.419406+00:00",
+    "last_failure_prompt_id": "4c45c627-a468-4db1-9cae-5aeba8b9a359"
+  }
 }
 ```
