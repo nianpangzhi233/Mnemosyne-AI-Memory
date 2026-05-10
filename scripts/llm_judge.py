@@ -35,7 +35,7 @@ def load_config() -> dict:
 
 
 def _call_llm(endpoint: str, model: str, system: str, user: str,
-              timeout: int = 30) -> Optional[str]:
+              timeout: int = 30, api_key: str = None) -> Optional[str]:
     payload_dict = {
         "model": model,
         "messages": [
@@ -47,8 +47,6 @@ def _call_llm(endpoint: str, model: str, system: str, user: str,
         "thinking": {"type": "disabled"},
     }
 
-    config = load_config()
-    api_key = config.get("api_key")
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"

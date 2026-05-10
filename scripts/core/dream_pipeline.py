@@ -19,6 +19,7 @@ import re
 import sqlite3
 import uuid
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -1130,9 +1131,7 @@ class DistillPhase(DreamPhase):
         if not raw_nodes:
             return {"distilled": 0, "discarded": 0, "skipped": "no raw nodes"}
 
-        distilled = 0
-        discarded = 0
-        errors = 0
+        api_key = config.get("api_key")
 
         system_prompt = (
             "You are a memory distillation engine for an AI agent called Mnemosyne.\n"
@@ -1158,79 +1157,63 @@ class DistillPhase(DreamPhase):
             'cli_tool, workflow, llm_integration, skill_memory, skill_feedback, or a new snake_case category"}\n\n'
             "If not worth keeping:\n"
             '{"keep": false}\n\n'
-            "## Examples\n\n"
-            "Fragment: [User] gzip请求体解析失败 [AI] 加了gunzip解压 [Tool:bash] tests passed\n"
-            '{"keep": true, "principle": "Check Content-Encoding before parsing request body", '
-            '"summary": "Fixed gzip-compressed request body parsing by adding decompression step before JSON.parse", '
-            '"task_type": "api_proxy"}\n\n'
-            "Fragment: [User] 你好 [AI] 你好！有什么可以帮你的？ [User] 谢谢\n"
-            '{"keep": false}\n\n'
-            "Fragment: [User] 我喜欢函数式风格不要class [AI] 收到 [Tool:edit] refactored\n"
-            '{"keep": true, "principle": "User prefers functional style over classes", '
-            '"summary": "User stated preference for functional programming style, avoid class-based patterns", '
-            '"task_type": "coding"}\n\n'
             "Now judge the following fragment:"
         )
 
-        for node in raw_nodes:
+        def _distill_one(node):
             content = node.get("content", "")
             content = re.sub(r"<[^>]+>", "", content)
             content = content.strip()
             if not content or len(content) < 50:
-                conn = store._connect()
-                try:
-                    conn.execute("UPDATE nodes SET tier='cold' WHERE id=?", (node["id"],))
-                    conn.commit()
-                finally:
-                    conn.close()
-                discarded += 1
-                continue
-
+                return (node["id"], "discard_short", None, None, None)
             user_prompt = f"Fragment:\n{content[:800]}"
-            result = _call_llm(endpoint, model, system_prompt, user_prompt, timeout)
-
+            result = _call_llm(endpoint, model, system_prompt, user_prompt, timeout, api_key=api_key)
             if not result:
-                errors += 1
-                continue
-
+                return (node["id"], "error", None, None, None)
             parsed = _extract_json(result)
             if not parsed:
-                errors += 1
-                continue
-
+                return (node["id"], "error", None, None, None)
             if parsed.get("keep"):
-                principle = parsed.get("principle", "")
-                summary = parsed.get("summary", "")
-                task_type = parsed.get("task_type", "")
-
-                abstract = (principle or content[:150])[:150]
-                overview = (summary or content[:600])[:600]
-
-                conn = store._connect()
-                try:
-                    if task_type:
-                        conn.execute(
-                            "UPDATE nodes SET type='experience', principle=?, abstract=?, overview=?, task_type=? WHERE id=?",
-                            (principle, abstract, overview, task_type, node["id"]),
-                        )
-                    else:
-                        conn.execute(
-                            "UPDATE nodes SET type='experience', principle=?, abstract=?, overview=? WHERE id=?",
-                            (principle, abstract, overview, node["id"]),
-                        )
-                    conn.commit()
-                finally:
-                    conn.close()
-
-                distilled += 1
+                return (node["id"], "keep", parsed.get("principle", ""),
+                        parsed.get("summary", ""), parsed.get("task_type", ""))
             else:
+                return (node["id"], "discard", None, None, None)
+
+        distilled = 0
+        discarded = 0
+        errors = 0
+
+        workers = min(8, len(raw_nodes))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(_distill_one, n): n for n in raw_nodes}
+            for future in as_completed(futures):
+                node_id, decision, principle, summary, task_type = future.result()
                 conn = store._connect()
                 try:
-                    conn.execute("UPDATE nodes SET tier='cold' WHERE id=?", (node["id"],))
-                    conn.commit()
+                    if decision == "discard_short" or decision == "discard":
+                        conn.execute("UPDATE nodes SET tier='cold' WHERE id=?", (node_id,))
+                        conn.commit()
+                        discarded += 1
+                    elif decision == "keep":
+                        content_for_abstract = principle or ""
+                        abstract = (content_for_abstract[:150])[:150] if content_for_abstract else ""
+                        overview = (summary or "")[:600]
+                        if task_type:
+                            conn.execute(
+                                "UPDATE nodes SET type='experience', principle=?, abstract=?, overview=?, task_type=? WHERE id=?",
+                                (principle, abstract, overview, task_type, node_id),
+                            )
+                        else:
+                            conn.execute(
+                                "UPDATE nodes SET type='experience', principle=?, abstract=?, overview=? WHERE id=?",
+                                (principle, abstract, overview, node_id),
+                            )
+                        conn.commit()
+                        distilled += 1
+                    else:
+                        errors += 1
                 finally:
                     conn.close()
-                discarded += 1
 
         return {"distilled": distilled, "discarded": discarded, "errors": errors, "total_raw": len(raw_nodes)}
 
