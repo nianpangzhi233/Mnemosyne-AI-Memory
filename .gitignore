@@ -1,5 +1,6 @@
 # Database & runtime
 graph.db
+graph.backup-before-*.db
 graph.db.bak-*
 graph.db.v*.bak.*
 dream_log.db
@@ -29,6 +30,7 @@ hot/*.txt
 cold/archive/
 proposals/pending.md
 reflections/log.md
+skills/skill-embryo*/
 
 # Backups & releases
 releases/

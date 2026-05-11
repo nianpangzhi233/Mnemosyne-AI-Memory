@@ -47,6 +47,9 @@ def _call_llm(endpoint: str, model: str, system: str, user: str,
         "thinking": {"type": "disabled"},
     }
 
+    if api_key is None:
+        api_key = load_config().get("api_key")
+
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"

@@ -57,6 +57,26 @@ def _days_since(iso_str: str) -> float:
     return max(0, (now - dt).total_seconds() / 86400)
 
 
+def _metadata_dict(node: dict) -> dict:
+    metadata = node.get("metadata") or {}
+    if isinstance(metadata, dict):
+        return metadata
+    if isinstance(metadata, str) and metadata and metadata != "{}":
+        try:
+            parsed = json.loads(metadata)
+            return parsed if isinstance(parsed, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
+
+
+def _entity_set(metadata: dict) -> set:
+    entities = metadata.get("entities") or []
+    if not isinstance(entities, list):
+        return set()
+    return {str(e).strip().lower() for e in entities if str(e).strip()}
+
+
 class DreamPhase(ABC):
     @property
     @abstractmethod
@@ -209,24 +229,56 @@ class CausalPhase(DreamPhase):
         return "因果检测 caused/solves"
 
     def run(self, store: AbstractGraphStore, embedder: AbstractEmbedder) -> dict:
-        by_task = store.bulk_get_nodes_by_task()
+        nodes = store.query_nodes("type='experience' AND tier != 'cold'")
+        problems = []
+        solutions = []
+        for node in nodes:
+            meta = _metadata_dict(node)
+            problem = str(meta.get("problem") or "").strip()
+            solution = str(meta.get("solution") or "").strip()
+            outcome = str(meta.get("outcome") or "").strip().lower()
+            entities = _entity_set(meta)
+            base = {**node, "metadata_dict": meta, "entities": entities}
+            if problem and outcome in {"failure", "partial", "observation"}:
+                problems.append(base)
+            if solution and outcome in {"success", "decision", "preference", "observation"}:
+                solutions.append(base)
 
+        existing = store.bulk_get_edge_pairs("solves") | store.bulk_get_edge_pairs("caused")
         edges_to_add = []
-        for items in by_task.values():
-            for i in range(len(items) - 1):
-                curr, nxt = items[i], items[i + 1]
-                if curr.get("result") == "failure" and nxt.get("result") == "success":
-                    edges_to_add.append({
-                        "from_id": curr["id"], "to_id": nxt["id"],
-                        "relation_type": "caused", "weight": 0.6, "source": "dream",
-                    })
-                    edges_to_add.append({
-                        "from_id": nxt["id"], "to_id": curr["id"],
-                        "relation_type": "solves", "weight": 0.6, "source": "dream",
-                    })
+        scanned = 0
+        for sol in solutions:
+            sol_vec_raw = sol.get("vector")
+            if not sol_vec_raw:
+                continue
+            sol_vec = np.frombuffer(sol_vec_raw, dtype=np.float32)
+            for prob in problems:
+                if sol["id"] == prob["id"]:
+                    continue
+                if (sol["id"], prob["id"]) in existing:
+                    continue
+                same_task = sol.get("task_type") and sol.get("task_type") == prob.get("task_type")
+                shared_entities = sol["entities"] & prob["entities"]
+                if not shared_entities:
+                    continue
+                if not same_task and len(shared_entities) < 2:
+                    continue
+                prob_vec_raw = prob.get("vector")
+                if not prob_vec_raw:
+                    continue
+                sim = float(np.dot(sol_vec, np.frombuffer(prob_vec_raw, dtype=np.float32)))
+                if sim < 0.78:
+                    continue
+                scanned += 1
+                weight = 0.7 + min(0.2, max(0.0, sim - 0.78))
+                edges_to_add.append({
+                    "from_id": sol["id"], "to_id": prob["id"],
+                    "relation_type": "solves", "weight": round(weight, 3), "source": "dream",
+                    "graph_dim": "causal", "strength": "strong" if weight >= 0.75 else "weak",
+                })
 
         added = store.bulk_add_edges(edges_to_add)
-        return {"added": added}
+        return {"added": added, "problems": len(problems), "solutions": len(solutions), "scanned": scanned}
 
 
 class ContradictsPhase(DreamPhase):
@@ -392,16 +444,117 @@ class TransfersPhase(DreamPhase):
                     nodes.append(n)
             for i in range(len(nodes)):
                 for j in range(i + 1, len(nodes)):
-                    if nodes[i].get("task_type") != nodes[j].get("task_type"):
-                        pair = (nodes[i]["id"], nodes[j]["id"])
-                        if pair not in existing:
-                            edges_to_add.append({
-                                "from_id": nodes[i]["id"], "to_id": nodes[j]["id"],
-                                "relation_type": "transfers_to", "weight": 0.5, "source": "dream",
-                            })
+                    if nodes[i].get("type") != "experience" or nodes[j].get("type") != "experience":
+                        continue
+                    if not nodes[i].get("task_type") or nodes[i].get("task_type") == nodes[j].get("task_type"):
+                        continue
+                    pair = (nodes[i]["id"], nodes[j]["id"])
+                    reverse_pair = (nodes[j]["id"], nodes[i]["id"])
+                    if pair not in existing and reverse_pair not in existing:
+                        edges_to_add.append({
+                            "from_id": nodes[i]["id"], "to_id": nodes[j]["id"],
+                            "relation_type": "transfers_to", "weight": 0.55, "source": "dream",
+                            "graph_dim": "causal", "strength": "weak",
+                        })
 
         added = store.bulk_add_edges(edges_to_add)
-        return {"added": added}
+        return {"added": added, "concept_groups": len(principle_groups)}
+
+
+class ConceptPhase(DreamPhase):
+    MIN_CLUSTER_SIZE = 3
+    SIMILARITY_THRESHOLD = 0.82
+
+    @property
+    def name(self) -> str:
+        return "概念层生成 ConceptPhase"
+
+    def run(self, store: AbstractGraphStore, embedder: AbstractEmbedder) -> dict:
+        nodes = [n for n in store.query_nodes("type='experience' AND tier != 'cold'") if n.get("principle")]
+        if len(nodes) < self.MIN_CLUSTER_SIZE:
+            return {"clusters": 0, "concepts_created": 0, "is_a_added": 0}
+
+        parent = {}
+
+        def find(x):
+            parent.setdefault(x, x)
+            if parent[x] != x:
+                parent[x] = find(parent[x])
+            return parent[x]
+
+        def union(a, b):
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[rb] = ra
+
+        vectors = []
+        for node in nodes:
+            raw = node.get("vector")
+            if raw:
+                vectors.append((node, np.frombuffer(raw, dtype=np.float32)))
+
+        for i in range(len(vectors)):
+            node_a, vec_a = vectors[i]
+            for j in range(i + 1, len(vectors)):
+                node_b, vec_b = vectors[j]
+                if node_a.get("task_type") == node_b.get("task_type") and node_a.get("task_type"):
+                    continue
+                sim = float(np.dot(vec_a, vec_b))
+                if sim >= self.SIMILARITY_THRESHOLD:
+                    union(node_a["id"], node_b["id"])
+
+        clusters: Dict[str, list] = {}
+        for node, _ in vectors:
+            if node["id"] in parent:
+                clusters.setdefault(find(node["id"]), []).append(node)
+
+        concept_nodes = store.query_nodes("type='concept'")
+        existing_concepts = {c.get("content"): c["id"] for c in concept_nodes}
+        existing_is_a = store.bulk_get_edge_pairs("is_a")
+        edges_to_add = []
+        concepts_created = 0
+
+        for members in clusters.values():
+            task_types = {m.get("task_type") for m in members if m.get("task_type")}
+            if len(members) < self.MIN_CLUSTER_SIZE or len(task_types) < 2:
+                continue
+            concept_text = self._concept_text(members)
+            concept_id = existing_concepts.get(concept_text)
+            if not concept_id:
+                vec = embedder.encode(concept_text).astype(np.float32).tobytes()
+                concept_id = store.add_raw_node(
+                    type="concept",
+                    content=concept_text,
+                    principle=concept_text,
+                    vector=vec,
+                    task_type="concept",
+                    tags="[]",
+                    metadata=json.dumps({
+                        "created_by": "ConceptPhase",
+                        "source_count": len(members),
+                        "task_types": sorted(task_types),
+                    }, ensure_ascii=False),
+                )
+                existing_concepts[concept_text] = concept_id
+                concepts_created += 1
+            for member in members:
+                pair = (member["id"], concept_id)
+                if pair not in existing_is_a:
+                    edges_to_add.append({
+                        "from_id": member["id"], "to_id": concept_id,
+                        "relation_type": "is_a", "weight": 0.75, "source": "dream",
+                        "graph_dim": "semantic", "strength": "strong",
+                    })
+
+        is_a_added = store.bulk_add_edges(edges_to_add)
+        return {"clusters": len(clusters), "concepts_created": concepts_created, "is_a_added": is_a_added}
+
+    @staticmethod
+    def _concept_text(members: List[dict]) -> str:
+        principles = [m.get("principle") or m.get("content") or "" for m in members]
+        shortest = sorted([p.strip() for p in principles if p.strip()], key=len)[0]
+        words = re.split(r"\s+", shortest)
+        return " ".join(words[:16])[:160]
 
 
 class SkillEmbryoPhase(DreamPhase):
@@ -854,7 +1007,8 @@ class StrategyPhase(DreamPhase):
 
     def run(self, store: AbstractGraphStore, embedder: AbstractEmbedder) -> dict:
         similar_edges = store.query_edges(
-            "relation_type='similar_to' AND source='dream' AND status='active'"
+            "relation_type='similar_to' AND status='active' AND weight >= ?",
+            (0.85,)
         )
 
         strategy_nodes = store.query_nodes("type='strategy'")
@@ -925,7 +1079,7 @@ class CovenantPhase(DreamPhase):
         return "covenant 审核"
 
     def run(self, store: AbstractGraphStore, embedder: AbstractEmbedder) -> dict:
-        dream_edges = store.query_edges("source='dream' AND status='active'")
+        dream_edges = store.query_edges("status='active'")
 
         veto_ids = []
         for e in dream_edges:
@@ -1068,6 +1222,29 @@ class AuditPhase(DreamPhase):
         if strategy_count > nodes * 0.5:
             alerts.append(f"策略节点占比过高: {strategy_count}/{nodes}")
 
+        try:
+            raw_backlog = store.count_nodes_where("type='raw' AND tier != 'cold'")
+            if raw_backlog > 20:
+                alerts.append(f"raw 待蒸馏积压: {raw_backlog}")
+            missing_task_type = store.count_nodes_where("type='experience' AND task_type IS NULL")
+            exp_count = store.count_nodes_where("type='experience'")
+            if exp_count and missing_task_type / exp_count > 0.3:
+                alerts.append(f"experience 缺少 task_type 比例过高: {missing_task_type}/{exp_count}")
+            caused = len(store.query_edges("relation_type='caused' AND status='active'"))
+            solves = len(store.query_edges("relation_type='solves' AND status='active'"))
+            if exp_count > 100 and caused + solves < 10:
+                alerts.append(f"因果边过少: caused+solves={caused + solves}")
+            concepts = store.count_nodes_where("type='concept'")
+            transfers = len(store.query_edges("relation_type='transfers_to' AND status='active'"))
+            if concepts >= 3 and transfers == 0:
+                alerts.append("已有 concept 但没有 transfers_to")
+            auto_edges = len(store.query_edges("source='auto' AND status='active'"))
+            dream_edges = len(store.query_edges("source='dream' AND status='active'"))
+            if auto_edges > dream_edges * 3:
+                alerts.append(f"auto 边审查覆盖不足: auto={auto_edges}, dream={dream_edges}")
+        except Exception as exc:
+            alerts.append(f"健康检查失败: {exc}")
+
         return {"nodes_after": nodes, "edges_after": edges,
                 "alerts": alerts, "status": "PASS" if not alerts else "WARN"}
 
@@ -1127,7 +1304,7 @@ class DistillPhase(DreamPhase):
         model = config["model"]
         timeout = config.get("timeout", 120)
 
-        raw_nodes = store.query_nodes("type='raw'")
+        raw_nodes = store.query_nodes("type='raw' AND tier != 'cold'")
         if not raw_nodes:
             return {"distilled": 0, "discarded": 0, "skipped": "no raw nodes"}
 
@@ -1153,8 +1330,10 @@ class DistillPhase(DreamPhase):
             "Respond with EXACTLY this JSON structure, nothing else:\n\n"
             "If worth keeping:\n"
             '{"keep": true, "principle": "concise one-line principle", "summary": "1-2 sentence summary", '
-            '"task_type": "category tag like api_proxy, memory_system, coding, testing, debugging, visual_design, '
-            'cli_tool, workflow, llm_integration, skill_memory, skill_feedback, or a new snake_case category"}\n\n'
+            '"task_type": "category tag", "outcome": "success|failure|partial|decision|preference|observation", '
+            '"problem": "specific problem if any", "solution": "specific solution if any", '
+            '"root_cause": "root cause if known", "entities": ["important tools/libs/files"], '
+            '"evidence": "short quote or fact from the fragment supporting the memory"}\n\n'
             "If not worth keeping:\n"
             '{"keep": false}\n\n'
             "Now judge the following fragment:"
@@ -1165,19 +1344,36 @@ class DistillPhase(DreamPhase):
             content = re.sub(r"<[^>]+>", "", content)
             content = content.strip()
             if not content or len(content) < 50:
-                return (node["id"], "discard_short", None, None, None)
+                return {"id": node["id"], "decision": "discard_short"}
             user_prompt = f"Fragment:\n{content[:800]}"
             result = _call_llm(endpoint, model, system_prompt, user_prompt, timeout, api_key=api_key)
             if not result:
-                return (node["id"], "error", None, None, None)
-            parsed = _extract_json(result)
+                return {"id": node["id"], "decision": "error"}
+            try:
+                parsed = _extract_json(result)
+            except Exception:
+                return {"id": node["id"], "decision": "error"}
             if not parsed:
-                return (node["id"], "error", None, None, None)
+                return {"id": node["id"], "decision": "error"}
             if parsed.get("keep"):
-                return (node["id"], "keep", parsed.get("principle", ""),
-                        parsed.get("summary", ""), parsed.get("task_type", ""))
+                return {
+                    "id": node["id"], "decision": "keep",
+                    "principle": parsed.get("principle", ""),
+                    "summary": parsed.get("summary", ""),
+                    "task_type": parsed.get("task_type", ""),
+                    "metadata": {
+                        "outcome": parsed.get("outcome", "observation"),
+                        "problem": parsed.get("problem", ""),
+                        "solution": parsed.get("solution", ""),
+                        "root_cause": parsed.get("root_cause", ""),
+                        "entities": parsed.get("entities") if isinstance(parsed.get("entities"), list) else [],
+                        "evidence": parsed.get("evidence", ""),
+                        "distilled_by": "DistillPhase",
+                        "distilled_at": _now_iso(),
+                    },
+                }
             else:
-                return (node["id"], "discard", None, None, None)
+                return {"id": node["id"], "decision": "discard"}
 
         distilled = 0
         discarded = 0
@@ -1187,7 +1383,9 @@ class DistillPhase(DreamPhase):
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {pool.submit(_distill_one, n): n for n in raw_nodes}
             for future in as_completed(futures):
-                node_id, decision, principle, summary, task_type = future.result()
+                item = future.result()
+                node_id = item["id"]
+                decision = item["decision"]
                 conn = store._connect()
                 try:
                     if decision == "discard_short" or decision == "discard":
@@ -1195,18 +1393,22 @@ class DistillPhase(DreamPhase):
                         conn.commit()
                         discarded += 1
                     elif decision == "keep":
+                        principle = item.get("principle", "")
+                        summary = item.get("summary", "")
+                        task_type = item.get("task_type", "")
+                        metadata_json = json.dumps(item.get("metadata") or {}, ensure_ascii=False)
                         content_for_abstract = principle or ""
                         abstract = (content_for_abstract[:150])[:150] if content_for_abstract else ""
                         overview = (summary or "")[:600]
                         if task_type:
                             conn.execute(
-                                "UPDATE nodes SET type='experience', principle=?, abstract=?, overview=?, task_type=? WHERE id=?",
-                                (principle, abstract, overview, task_type, node_id),
+                                "UPDATE nodes SET type='experience', principle=?, abstract=?, overview=?, task_type=?, metadata=? WHERE id=?",
+                                (principle, abstract, overview, task_type, metadata_json, node_id),
                             )
                         else:
                             conn.execute(
-                                "UPDATE nodes SET type='experience', principle=?, abstract=?, overview=? WHERE id=?",
-                                (principle, abstract, overview, node_id),
+                                "UPDATE nodes SET type='experience', principle=?, abstract=?, overview=?, metadata=? WHERE id=?",
+                                (principle, abstract, overview, metadata_json, node_id),
                             )
                         conn.commit()
                         distilled += 1
@@ -1219,10 +1421,10 @@ class DistillPhase(DreamPhase):
 
 
 _FAST_PHASES = [SnapshotPhase, SimilarToPhase, DecayPhase, CovenantPhase, SyncPhase]
-_SLOW_PHASES = [LogScanPhase, DistillPhase, CausalPhase, TransfersPhase, ContradictsPhase, SkillEmbryoPhase, SkillDevelopmentPhase, SkillMirrorEvolutionPhase, StrategyPhase, LLMReviewPhase]
+_SLOW_PHASES = [LogScanPhase, DistillPhase, CausalPhase, ConceptPhase, TransfersPhase, ContradictsPhase, SkillEmbryoPhase, SkillDevelopmentPhase, SkillMirrorEvolutionPhase, StrategyPhase, LLMReviewPhase]
 
 # Keep old name for backward compatibility
-_ALL_PHASES = [SnapshotPhase, LogScanPhase, SimilarToPhase, CausalPhase, ContradictsPhase, TransfersPhase,
+_ALL_PHASES = [SnapshotPhase, LogScanPhase, SimilarToPhase, CausalPhase, ContradictsPhase, ConceptPhase, TransfersPhase,
                SkillEmbryoPhase, SkillDevelopmentPhase, SkillMirrorEvolutionPhase, StrategyPhase, CovenantPhase, DecayPhase, LLMReviewPhase, DistillPhase, SyncPhase, AuditPhase]
 
 
