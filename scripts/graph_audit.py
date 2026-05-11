@@ -22,6 +22,7 @@ fix_windows_encoding()
 ensure_hf_offline()
 
 import sqlite3
+import json
 import numpy as np
 
 DB_PATH = Path(__file__).resolve().parent.parent / "graph.db"
@@ -54,6 +55,54 @@ def report():
     c.execute("SELECT COUNT(*) FROM nodes WHERE vector IS NULL")
     no_vector = c.fetchone()[0]
 
+    c.execute("SELECT COUNT(*) FROM nodes WHERE type='raw' AND tier!='cold'")
+    active_raw = c.fetchone()[0]
+
+    c.execute("SELECT COUNT(*) FROM nodes WHERE type='experience' AND task_type IS NULL")
+    missing_task_type = c.fetchone()[0]
+
+    c.execute("SELECT task_type, COUNT(*) FROM nodes WHERE task_type IS NOT NULL GROUP BY task_type ORDER BY COUNT(*) DESC")
+    task_type_rows = c.fetchall()
+    suspicious_task_types = [
+        (ttype, count) for ttype, count in task_type_rows
+        if ttype and (" " in ttype or "/" in ttype or ttype.isdigit())
+    ]
+
+    c.execute("""
+        SELECT COUNT(*) FROM edges
+        WHERE graph_dim IS NULL OR graph_dim='' OR strength IS NULL OR strength=''
+    """)
+    edge_metadata_missing = c.fetchone()[0]
+
+    c.execute("SELECT relation_type, graph_dim, strength, COUNT(*) FROM edges WHERE status='active' GROUP BY relation_type, graph_dim, strength ORDER BY relation_type")
+    edge_dim_rows = c.fetchall()
+
+    c.execute("SELECT status, COUNT(*) FROM skill_artifacts GROUP BY status ORDER BY status")
+    skill_status_rows = c.fetchall()
+
+    latest_dream_status = "unknown"
+    latest_dream_alerts = []
+    dream_db = DB_PATH.parent / "dream_log.db"
+    if dream_db.exists():
+        try:
+            dream_conn = sqlite3.connect(str(dream_db))
+            dream_conn.row_factory = sqlite3.Row
+            row = dream_conn.execute(
+                "SELECT status, phases FROM dreams ORDER BY started_at DESC LIMIT 1"
+            ).fetchone()
+            if row:
+                latest_dream_status = row["status"]
+                phases = json.loads(row["phases"] or "[]")
+                if phases:
+                    latest_dream_alerts = phases[-1].get("result", {}).get("alerts", []) or []
+        except Exception:
+            latest_dream_status = "unreadable"
+        finally:
+            try:
+                dream_conn.close()
+            except Exception:
+                pass
+
     c.execute("SELECT COUNT(*) FROM nodes WHERE content LIKE '因果前件:%' OR content LIKE '因果后件:%' OR content LIKE '概念迁移:%' OR content LIKE '因果策略:%'")
     templates = c.fetchone()[0]
 
@@ -81,6 +130,24 @@ def report():
         issues.append(f"边密度过高 ({density:.1f} edges/node)")
     if no_vector > 0:
         issues.append(f"{no_vector} 节点无向量")
+    if active_raw > 20:
+        health = "WARN"
+        issues.append(f"raw 待蒸馏积压 ({active_raw})")
+    if missing_task_type > 0:
+        health = "WARN"
+        issues.append(f"experience 缺少 task_type ({missing_task_type})")
+    if suspicious_task_types:
+        health = "WARN"
+        issues.append(f"可疑 task_type: {len(suspicious_task_types)} 类")
+    if edge_metadata_missing:
+        health = "WARN"
+        issues.append(f"边缺少 graph_dim/strength ({edge_metadata_missing})")
+    if latest_dream_status not in {"PASS", "unknown"}:
+        health = "WARN"
+        issues.append(f"最近做梦状态: {latest_dream_status}")
+    if latest_dream_alerts:
+        health = "WARN"
+        issues.append(f"最近做梦告警: {len(latest_dream_alerts)} 条")
 
     print(f"\n{'='*50}")
     print(f"  Mnemosyne 健康报告")
@@ -88,6 +155,7 @@ def report():
     print(f"  状态: {health}")
     print(f"  模型: {model_name}")
     print(f"  上次做梦: {last_dream_str}")
+    print(f"  最近做梦状态: {latest_dream_status}")
     print(f"")
     print(f"  节点: {total_nodes} (有向量: {total_nodes - no_vector}, 无向量: {no_vector})")
     for t, cnt in sorted(type_dist.items(), key=lambda x: -x[1]):
@@ -100,13 +168,31 @@ def report():
     print(f"")
     print(f"  孤立节点: {orphans}")
     print(f"  模板化节点: {templates}")
+    print(f"  active raw: {active_raw}")
+    print(f"  missing task_type: {missing_task_type}")
+    print(f"  edge metadata missing: {edge_metadata_missing}")
+    if suspicious_task_types:
+        print("  可疑 task_type:")
+        for ttype, count in suspicious_task_types[:20]:
+            print(f"    {ttype}: {count}")
+    if skill_status_rows:
+        print("  技能状态:")
+        for status, count in skill_status_rows:
+            print(f"    {status}: {count}")
+    if edge_dim_rows:
+        print("  边维度分布:")
+        for rel, dim, strength, count in edge_dim_rows:
+            print(f"    {rel}: {dim}/{strength} = {count}")
     if issues:
         print(f"")
         for issue in issues:
             print(f"  ⚠️  {issue}")
     print(f"{'='*50}\n")
 
-    return {"health": health, "orphans": orphans, "templates": templates}
+    return {"health": health, "orphans": orphans, "templates": templates,
+            "active_raw": active_raw, "missing_task_type": missing_task_type,
+            "edge_metadata_missing": edge_metadata_missing,
+            "suspicious_task_types": suspicious_task_types}
 
 
 def clean(force=False):

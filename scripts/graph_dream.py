@@ -35,6 +35,20 @@ from core import (
 )
 
 
+def _phase_names():
+    from core.dream_pipeline import _ALL_PHASES
+    return [(idx, cls().name) for idx, cls in enumerate(_ALL_PHASES, 1)]
+
+
+def show_phase_map():
+    print("=" * 40)
+    print("Phase map (--phase N)")
+    print("=" * 40)
+    for idx, name in _phase_names():
+        print(f"  {idx:>2}. {name}")
+    print("=" * 40)
+
+
 def show_stats():
     store = SQLiteStore(embedder=HarrierEmbedder())
     conn = store._connect()
@@ -78,6 +92,7 @@ def main():
     parser = argparse.ArgumentParser(description="做梦全流程")
     parser.add_argument("--full", action="store_true", help="完整做梦（全部Phase）")
     parser.add_argument("--phase", type=int, help="只跑某个Phase")
+    parser.add_argument("--list-phases", action="store_true", help="列出 --phase N 对应阶段")
     parser.add_argument("--stats", action="store_true", help="查看统计")
     parser.add_argument("--no-slow", action="store_true", help="Skip slow path (LLM phases)")
     args = parser.parse_args()
@@ -86,10 +101,15 @@ def main():
         show_stats()
         return
 
+    if args.list_phases:
+        show_phase_map()
+        return
+
     store = SQLiteStore(embedder=HarrierEmbedder())
     embedder = store._embedder  # v6.1: reuse same embedder instance
 
     if args.phase:
+        show_phase_map()
         results = run_dream(store, embedder, phases=[args.phase])
         for r in results:
             print(f"  结果: {r['result']}")

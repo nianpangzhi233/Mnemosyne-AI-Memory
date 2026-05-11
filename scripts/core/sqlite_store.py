@@ -62,6 +62,110 @@ def _slugify(name: str) -> str:
     return hashlib.sha1(name.encode("utf-8")).hexdigest()[:12]
 
 
+_TASK_TYPE_ALIASES = {
+    "20260414154831": "workflow",
+    "bug fix": "debugging",
+    "bug-fix": "debugging",
+    "bug_fix": "debugging",
+    "bugfix": "debugging",
+    "security fix": "debugging",
+    "security-fix": "debugging",
+    "bug diagnosis": "debugging",
+    "bug-diagnosis": "debugging",
+    "bug_analysis": "debugging",
+    "bug-analysis": "debugging",
+    "architecture design": "architecture",
+    "architecture-design": "architecture",
+    "architecture_design": "architecture",
+    "architecture/refactoring": "architecture",
+    "architecture-refactoring": "architecture",
+    "architecture redesign": "architecture",
+    "architecture-redesign": "architecture",
+    "system design": "architecture",
+    "system-design": "architecture",
+    "system_design_analysis": "architecture",
+    "system-design-analysis": "architecture",
+    "system audit": "memory_system",
+    "system-audit": "memory_system",
+    "systematic audit": "memory_system",
+    "systematic-audit": "memory_system",
+    "system improvement": "memory_system",
+    "system-improvement": "memory_system",
+    "knowledge_graph_construction": "memory_system",
+    "knowledge-graph-construction": "memory_system",
+    "memory_maintenance": "memory_system",
+    "memory-maintenance": "memory_system",
+    "pipeline validation": "testing",
+    "pipeline-validation": "testing",
+    "validation": "testing",
+    "verification": "testing",
+    "quality assurance": "testing",
+    "quality-assurance": "testing",
+    "integration testing": "testing",
+    "integration-testing": "testing",
+    "data cleanup": "memory_system",
+    "data-cleanup": "memory_system",
+    "data_cleanup_and_commit": "memory_system",
+    "data-cleanup-and-commit": "memory_system",
+    "data migration": "memory_system",
+    "data-migration": "memory_system",
+    "data migration / bug fix": "memory_system",
+    "data-migration-bug-fix": "memory_system",
+    "data_migration_bug_fix": "memory_system",
+    "data backfill": "memory_system",
+    "data-backfill": "memory_system",
+    "pipeline refactoring": "memory_system",
+    "pipeline-refactoring": "memory_system",
+    "code fix / design decision": "coding",
+    "code fix design decision": "coding",
+    "code-fix-design-decision": "coding",
+    "code_fix_design_decision": "coding",
+    "code maintenance": "coding",
+    "code-maintenance": "coding",
+    "code review": "coding",
+    "code-review": "coding",
+    "git workflow": "workflow",
+    "git-workflow": "workflow",
+    "gitignore maintenance": "workflow",
+    "gitignore-maintenance": "workflow",
+    "task resumption": "workflow",
+    "task-resumption": "workflow",
+    "release prep": "deployment",
+    "release-prep": "deployment",
+    "tool design": "cli_tool",
+    "tool-design": "cli_tool",
+    "localization": "documentation",
+    "system evaluation": "memory_system",
+    "system-evaluation": "memory_system",
+    "system_evaluation": "memory_system",
+    "architecture refactoring": "architecture",
+    "architecture_refactoring": "architecture",
+    "skill emergence": "skill_memory",
+    "skill-emergence": "skill_memory",
+    "skill evolution": "skill_memory",
+    "skill-evolution": "skill_memory",
+    "skill_evolution": "skill_memory",
+}
+
+
+def _normalize_task_type(ttype: Optional[str]) -> Optional[str]:
+    if not ttype:
+        return None
+    raw = str(ttype).strip().lower()
+    if not raw:
+        return None
+    raw = raw.replace("/", " ").replace("&", " ")
+    raw = re.sub(r"\s+", " ", raw)
+    if raw in _TASK_TYPE_ALIASES:
+        return _TASK_TYPE_ALIASES[raw]
+    slug = re.sub(r"[^a-z0-9]+", "_", raw).strip("_")
+    if slug in _TASK_TYPE_ALIASES:
+        return _TASK_TYPE_ALIASES[slug]
+    if not slug:
+        return None
+    return slug[:80]
+
+
 _PROJECT_MAP = {
     "memory-evolution": "memory_system",
     "growth-tree": "visual_design",
@@ -153,6 +257,9 @@ class SQLiteStore(AbstractGraphStore):
             conn.close()
 
     def _register_task_type(self, ttype: str):
+        ttype = _normalize_task_type(ttype)
+        if not ttype:
+            return
         conn = self._connect()
         try:
             cur = conn.cursor()
@@ -178,6 +285,7 @@ class SQLiteStore(AbstractGraphStore):
     def _resolve_task_type(self, content: str, task_type: Optional[str],
                            project: Optional[str] = None) -> Optional[str]:
         if task_type:
+            task_type = _normalize_task_type(task_type)
             self._register_task_type(task_type)
             return task_type
 
@@ -455,11 +563,15 @@ class SQLiteStore(AbstractGraphStore):
             cur = conn.cursor()
             edge_id = str(uuid.uuid4())
             created = _now_iso()
+            graph_dim = kwargs.get("graph_dim", self._default_graph_dim(relation_type))
+            strength = kwargs.get("strength", self._default_strength(weight))
             cur.execute("""
                 INSERT OR IGNORE INTO edges(id, from_id, to_id, relation_type,
-                                            weight, source, status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, 'active', ?)
-            """, (edge_id, from_id, to_id, relation_type, weight, source, created))
+                                            weight, source, status, created_at,
+                                            graph_dim, strength)
+                VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+            """, (edge_id, from_id, to_id, relation_type, weight, source, created,
+                  graph_dim, strength))
 
             if cur.rowcount > 0:
                 cur.execute(
@@ -2024,12 +2136,17 @@ class SQLiteStore(AbstractGraphStore):
             added = 0
             for e in edges:
                 edge_id = str(uuid.uuid4())
+                weight = e.get("weight", 0.5)
+                relation_type = e["relation_type"]
+                graph_dim = e.get("graph_dim", self._default_graph_dim(relation_type))
+                strength = e.get("strength", self._default_strength(weight))
                 cur.execute("""
                     INSERT OR IGNORE INTO edges(id, from_id, to_id, relation_type,
-                                                weight, source, status, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, 'active', ?)
-                """, (edge_id, e["from_id"], e["to_id"], e["relation_type"],
-                      e.get("weight", 0.5), e.get("source", "dream"), _now_iso()))
+                                                weight, source, status, created_at,
+                                                graph_dim, strength)
+                    VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+                """, (edge_id, e["from_id"], e["to_id"], relation_type,
+                      weight, e.get("source", "dream"), _now_iso(), graph_dim, strength))
                 if cur.rowcount > 0:
                     added += 1
             conn.commit()
@@ -2452,6 +2569,18 @@ class SQLiteStore(AbstractGraphStore):
     # ── 内部方��� ──────────────────────────────────────────
 
     @staticmethod
+    def _default_graph_dim(relation_type: str) -> str:
+        if relation_type in {"caused", "solves", "contradicts"}:
+            return "causal"
+        if relation_type in {"crystallized_from", "verified_by", "needs_revision"}:
+            return "entity"
+        return "semantic"
+
+    @staticmethod
+    def _default_strength(weight: float) -> str:
+        return "strong" if (weight or 0.0) >= 0.6 else "weak"
+
+    @staticmethod
     def _write_edge_inner(cur, from_id: str, to_id: str, relation_type: str,
                           weight: float = 0.5, source: str = "auto"):
         """在已有 cursor 上写边（供事务内调用），INSERT OR IGNORE 防重复
@@ -2460,11 +2589,15 @@ class SQLiteStore(AbstractGraphStore):
         """
         edge_id = str(uuid.uuid4())
         created = _now_iso()
+        graph_dim = SQLiteStore._default_graph_dim(relation_type)
+        strength = SQLiteStore._default_strength(weight)
         cur.execute("""
             INSERT OR IGNORE INTO edges(id, from_id, to_id, relation_type,
-                                        weight, source, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'active', ?)
-        """, (edge_id, from_id, to_id, relation_type, weight, source, created))
+                                        weight, source, status, created_at,
+                                        graph_dim, strength)
+            VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+        """, (edge_id, from_id, to_id, relation_type, weight, source, created,
+              graph_dim, strength))
 
     @staticmethod
     def _touch_nodes(node_ids: list, conn: sqlite3.Connection):

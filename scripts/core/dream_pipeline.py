@@ -144,6 +144,10 @@ class DreamPipeline:
                 result = phase.run(store, embedder)
                 print(f"  结果: {result}")
                 results.append({"phase": i, "name": phase.name, "result": result})
+                if isinstance(phase, SnapshotPhase):
+                    for candidate in self._phases:
+                        if isinstance(candidate, AuditPhase):
+                            candidate.set_snapshot(result)
             except Exception as e:
                 print(f"  错误: {e}")
                 results.append({"phase": i, "name": phase.name, "result": {"status": "ERROR", "error": str(e)}})
@@ -153,9 +157,11 @@ class DreamPipeline:
         final_status = "PASS"
         for r in results:
             res = r.get("result", {})
+            if isinstance(res, dict) and res.get("status") in {"ERROR", "FAIL"}:
+                final_status = "FAIL"
+                break
             if isinstance(res, dict) and res.get("status") == "WARN":
                 final_status = "WARN"
-                break
 
         log_conn = _sq.connect(str(_DREAM_LOG_DB))
         try:
@@ -1111,6 +1117,8 @@ class DecayPhase(DreamPhase):
         all_nodes = store.query_nodes()
         updates = []
         for n in all_nodes:
+            if n.get("type") == "raw" and n.get("tier") == "cold":
+                continue
             days = _days_since(n.get("last_access") or "")
             tw = TYPE_WEIGHTS.get(n.get("type", "experience"), 1.0)
             access = n.get("access_count", 0)
@@ -1389,7 +1397,10 @@ class DistillPhase(DreamPhase):
                 conn = store._connect()
                 try:
                     if decision == "discard_short" or decision == "discard":
-                        conn.execute("UPDATE nodes SET tier='cold' WHERE id=?", (node_id,))
+                        conn.execute(
+                            "UPDATE nodes SET tier='cold', decay_score=0, base_score=0, updated_at=? WHERE id=?",
+                            (_now_iso(), node_id),
+                        )
                         conn.commit()
                         discarded += 1
                     elif decision == "keep":
@@ -1420,8 +1431,8 @@ class DistillPhase(DreamPhase):
         return {"distilled": distilled, "discarded": discarded, "errors": errors, "total_raw": len(raw_nodes)}
 
 
-_FAST_PHASES = [SnapshotPhase, SimilarToPhase, DecayPhase, CovenantPhase, SyncPhase]
-_SLOW_PHASES = [LogScanPhase, DistillPhase, CausalPhase, ConceptPhase, TransfersPhase, ContradictsPhase, SkillEmbryoPhase, SkillDevelopmentPhase, SkillMirrorEvolutionPhase, StrategyPhase, LLMReviewPhase]
+_FAST_PHASES = [SnapshotPhase, SimilarToPhase]
+_SLOW_PHASES = [LogScanPhase, DistillPhase, CausalPhase, ConceptPhase, TransfersPhase, ContradictsPhase, SkillEmbryoPhase, SkillDevelopmentPhase, SkillMirrorEvolutionPhase, StrategyPhase, CovenantPhase, DecayPhase, SyncPhase, LLMReviewPhase]
 
 # Keep old name for backward compatibility
 _ALL_PHASES = [SnapshotPhase, LogScanPhase, SimilarToPhase, CausalPhase, ContradictsPhase, ConceptPhase, TransfersPhase,
@@ -1456,11 +1467,4 @@ def run_dream(store: AbstractGraphStore, embedder: AbstractEmbedder,
     for p in phase_list:
         pipeline.register(p)
 
-    results = pipeline.execute(store, embedder)
-
-    snapshot = {}
-    if results:
-        snapshot = results[0].get("result", {})
-    audit_phase.set_snapshot(snapshot)
-
-    return results
+    return pipeline.execute(store, embedder)

@@ -540,7 +540,7 @@ def main():
                 "result": {
                     "protocolVersion": "2024-11-05",
                     "capabilities": {"tools": {"listChanged": False}},
-                    "serverInfo": {"name": "mnemosyne", "version": "7.0.0"}
+                    "serverInfo": {"name": "mnemosyne", "version": "7.2.0"}
                 }
             })
 

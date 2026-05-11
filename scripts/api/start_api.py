@@ -31,7 +31,7 @@ from core.embedder import HarrierEmbedder
 app = FastAPI(
     title="Mnemosyne API",
     description="Bionic memory system for AI agents — REST API",
-    version="7.0.0",
+    version="7.2.0",
 )
 
 _store: Optional[SQLiteStore] = None
@@ -51,6 +51,7 @@ class WriteRequest(BaseModel):
     content: str = Field(..., description="Experience content (L2)")
     type: str = Field("experience", description="Node type: experience / correction / raw")
     principle: Optional[str] = Field(None, description="Abstract principle")
+    task_type: Optional[str] = Field(None, description="Task category")
     project: Optional[str] = Field(None, description="Project name")
     tags: Optional[List[str]] = Field(None, description="Tags")
     precondition: Optional[str] = Field(None, description="Environmental condition")
@@ -94,6 +95,7 @@ def write(req: WriteRequest):
         content=req.content,
         node_type=req.type,
         principle=req.principle,
+        task_type=req.task_type,
         project=req.project,
         tags=req.tags,
         precondition=req.precondition,

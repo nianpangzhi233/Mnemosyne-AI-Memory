@@ -53,7 +53,17 @@ def traverse(node_id: str, depth: int = 2, max_results: int = 10,
 def inject(context: str, max_chars: int = 500):
     store = _get_store()
 
-    top_results = store.search_by_vector(context, top=5)
+    top_results = store.search_hybrid(context, top=5, layer="L2")
+    spread_results = store.search_spreading(context, mode="creative", top=5, layer="L1")
+    if not top_results:
+        top_results = spread_results
+    else:
+        seen = {r["id"] for r in top_results}
+        for item in spread_results:
+            if item["id"] not in seen:
+                top_results.append(item)
+                seen.add(item["id"])
+
     if not top_results:
         return ""
 
@@ -65,7 +75,8 @@ def inject(context: str, max_chars: int = 500):
     lines = []
     total = 0
     for r in top_results:
-        line = f"- [{r['tier']}] {r['content']}"
+        text = r.get("content") or r.get("overview") or r.get("abstract", "")
+        line = f"- [{r['tier']}] {text}"
         if r.get("principle"):
             line += f" (原理: {r['principle']})"
         if total + len(line) > max_chars:

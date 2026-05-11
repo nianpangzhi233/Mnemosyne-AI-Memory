@@ -9,7 +9,7 @@ Bionic Experience & Memory System — Agent memory, GraphRAG, vector search, pre
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![MCP Compatible](https://img.shields.io/badge/MCP-compatible-purple?style=flat-square)](https://modelcontextprotocol.io/)
-[![Version](https://img.shields.io/badge/version-7.0.0-black?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-7.2.0-black?style=flat-square)](CHANGELOG.md)
 [![CI](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/actions/workflows/ci.yml/badge.svg)](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/actions/workflows/ci.yml)
 [![Pages](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/actions/workflows/pages.yml/badge.svg)](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/actions/workflows/pages.yml)
 [![Search](https://img.shields.io/badge/search-hybrid%20%7C%20precise%20%7C%20creative-orange?style=flat-square)](#knowledge-graph--multi-dimensional-retrieval)

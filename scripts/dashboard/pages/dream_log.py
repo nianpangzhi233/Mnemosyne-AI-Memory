@@ -14,8 +14,12 @@ PHASE_LABELS = {
     "LogScan": "日志扫描",
     "SimilarTo": "相似关系",
     "Causal": "因果关系",
+    "Concept": "概念层",
     "Contradicts": "矛盾检测",
     "Transfers": "迁移关系",
+    "SkillEmbryo": "技能胚胎",
+    "SkillDevelopment": "技能开发",
+    "SkillMirror": "技能镜像",
     "Strategy": "策略提炼",
     "Covenant": "安全约束",
     "Decay": "衰减更新",
@@ -199,16 +203,6 @@ if not logs:
         st.metric(T["total_nodes"], store.count_nodes())
     st.stop()
 
-PHASE_NAMES = [
-    "Snapshot", "LogScan", "SimilarTo", "Causal", "Contradicts",
-    "Transfers", "Strategy", "Covenant", "Decay", "LLM", "Distill", "Sync", "Audit"
-]
-
-PHASE_COLORS = [
-    "#0071e3", "#5ac8fa", "#34c759", "#ff3b30", "#ff9500",
-    "#af52de", "#ff2d55", "#5856d6", "#8e8e93", "#0071e3", "#5ac8fa", "#34c759", "#ff3b30"
-]
-
 for log in logs:
     started = log.get("started_at", "")[:19].replace("T", " ")
     status = log.get("status", "unknown")
@@ -246,29 +240,16 @@ for log in logs:
 
     if phases_data:
         cells_html = ""
-        for pi, pname in enumerate(PHASE_NAMES):
-            phase_info = None
-            for p in phases_data:
-                if pname.lower() in p.get("name", "").lower() or str(pi + 1) == str(p.get("phase", "")):
-                    phase_info = p
-                    break
-
-            if phase_info:
-                result = phase_info.get("result", {})
-                if isinstance(result, str):
-                    try:
-                        result = json.loads(result)
-                    except:
-                        result = {}
-
-                added = result.get("added", result.get("updated", result.get("synced", result.get("checked", ""))))
-                css_cls = "phase-ok" if added else "phase-skip"
-                label = str(added) if added else "0"
-            else:
-                css_cls = "phase-skip"
-                label = "–"
-
-            phase_label = PHASE_LABELS.get(pname, pname)
+        for phase_info in phases_data:
+            name = phase_info.get("name", "")
+            result = normalize_result(phase_info.get("result", {}))
+            status = result.get("status")
+            changed = result.get("added", result.get("updated", result.get("synced", result.get("written", result.get("checked", 0)))))
+            css_cls = "phase-ok" if changed or status in {"PASS", "done"} else "phase-skip"
+            if status in {"WARN", "ERROR", "FAIL"} or result.get("alerts"):
+                css_cls = "phase-warn"
+            label = str(changed or status or 0)
+            phase_label = phase_display_name(name)
             cells_html += f'<div class="phase-cell {css_cls}" title="{phase_label}: {label}">{phase_label[:2]}</div>'
 
         st.markdown(f'<div class="phase-bar">{cells_html}</div>', unsafe_allow_html=True)
