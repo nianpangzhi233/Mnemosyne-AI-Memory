@@ -1,0 +1,2 @@
+{"id":"problem-gzip","day":1,"content":"API gateway failed to parse gzipped JSON request bodies.","principle":"Check content encoding before parsing request bodies.","task_type":"api_proxy","metadata":{"outcome":"failure","problem":"gzipped JSON parse failed","entities":["gzip","json"]}}
+{"id":"contract-a","day":1,"content":"memory_system work benefited from explicit field contracts.","principle":"Use explicit contracts before adding new memory fields.","task_type":"memory_system","metadata":{"outcome":"success","solution":"contract first","entities":["contract","field"]}}

@@ -118,6 +118,29 @@ def _telemetry_summary():
         conn.close()
 
 
+def _telemetry_runs(limit=6):
+    if not DREAM_LOG_DB.exists():
+        return []
+    conn = sqlite3.connect(str(DREAM_LOG_DB))
+    try:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM telemetry_runs ORDER BY started_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        runs = []
+        for row in rows:
+            item = dict(row)
+            item["summary"] = _safe_json(item.get("summary"), {})
+            item["errors"] = _safe_json(item.get("errors"), [])
+            runs.append(item)
+        return runs
+    except sqlite3.Error:
+        return []
+    finally:
+        conn.close()
+
+
 def _meta_value(key: str):
     conn = sqlite3.connect(str(Path(__file__).resolve().parent.parent.parent.parent / "graph.db"))
     try:
@@ -178,6 +201,7 @@ skills = store.list_skill_artifacts() if hasattr(store, "list_skill_artifacts") 
 latest_dream = _latest_dream()
 latest_report = _latest_evolution_report()
 telemetry_summary = _telemetry_summary()
+telemetry_runs = _telemetry_runs()
 latest_skill_auto_loop_raw = _meta_value("last_skill_auto_loop")
 latest_skill_auto_loop = _safe_json(latest_skill_auto_loop_raw, {}) if latest_skill_auto_loop_raw else {}
 
@@ -335,6 +359,8 @@ if latest_report or telemetry_summary:
     phase_telemetry = (telemetry_summary or {}).get("phases") or {}
     warnings = report.get("warnings") or []
     actions = report.get("next_actions") or []
+    reviewable_counts = report.get("reviewable_counts") or {}
+    reviewable_total = sum(int(v or 0) for v in reviewable_counts.values())
     st.markdown(
         f"""
         <div class="mn-panel" style="margin-top:12px; margin-bottom:0;">
@@ -348,9 +374,11 @@ if latest_report or telemetry_summary:
                 <div><strong>耗时</strong><br>{float(report.get('duration_ms') or latest_telemetry.get('duration_ms') or 0):.0f} ms</div>
                 <div><strong>阶段均耗时</strong><br>{float(phase_telemetry.get('avg_ms') or 0):.0f} ms</div>
                 <div><strong>提醒</strong><br>{len(warnings)}</div>
+                <div><strong>待审阅</strong><br>{reviewable_total}</div>
             </div>
             <div style="margin-top:12px; color:#424245;">{_html(str(report.get('summary') or '暂无学习报告摘要'))}</div>
             {f'<div style="margin-top:10px; color:#c96a00;">下一步：{_html(str(actions[0]))}</div>' if actions else ''}
+            {f'<div style="margin-top:8px; color:#6e6e73;">证据链：新记忆 {reviewable_counts.get("new_memories", 0)} · 新技能 {reviewable_counts.get("new_skills", 0)} · 技能变化 {reviewable_counts.get("skill_changes", 0)} · 矛盾 {reviewable_counts.get("contradictions", 0)}</div>' if reviewable_counts else ''}
         </div>
         """,
         unsafe_allow_html=True,
@@ -405,6 +433,41 @@ if latest_skill_auto_loop:
                 <summary style="cursor:pointer; color:#3b6df6; font-weight:700;">展开候选明细</summary>
                 <div class="mn-list" style="margin-top:12px;">{details_html}</div>
             </details>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+if telemetry_runs:
+    run_rows = []
+    for run in telemetry_runs:
+        status = run.get("status") or "unknown"
+        cls = "pill-green" if status == "PASS" else "pill-red" if status == "FAIL" else "pill-amber"
+        summary = run.get("summary") or {}
+        errors = run.get("errors") or []
+        hint = []
+        if run.get("run_type") == "skill_auto_loop":
+            hint.append(f"processed {summary.get('processed', 0)}/{summary.get('candidates', 0)}")
+            hint.append(f"errors {len(errors)}")
+        elif run.get("run_type") == "skill_audit":
+            hint.append(f"audit_required {summary.get('audited', 0)}")
+        elif run.get("run_type") == "dream_full":
+            hint.append(f"rc {summary.get('return_code', '∅')}")
+            hint.append("skill loop" if summary.get("skill_auto_loop_ran") else "no skill loop")
+        else:
+            hint.append(str(summary)[:80])
+        run_rows.append(
+            f"<div class='mn-list-item'><div><strong>{_html(str(run.get('run_type') or 'unknown'))}</strong>"
+            f"<small>{_time_full(run.get('started_at'))} · {float(run.get('duration_ms') or 0):.0f} ms · {_html(' · '.join(hint))}</small></div>"
+            f"<div>{_pill(_label(status), cls)}</div></div>"
+        )
+    st.markdown(
+        f"""
+        <div class="mn-panel" style="margin-top:12px; margin-bottom:0;">
+            <div class="mn-section-title">
+                <h2>后台运行历史</h2><span>daemon telemetry_runs</span>
+            </div>
+            <div class="mn-list">{''.join(run_rows)}</div>
         </div>
         """,
         unsafe_allow_html=True,

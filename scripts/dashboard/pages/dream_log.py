@@ -128,6 +128,36 @@ def result_sentence(name: str, result: dict) -> tuple[str, str, str]:
 
     return label, status, tone, detail
 
+
+def _safe_text(value):
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+def _render_report_items(title, items, limit=6):
+    if not items:
+        return
+    st.markdown(f"**{title}**")
+    for item in items[:limit]:
+        evidence_ids = item.get("evidence_ids") or []
+        target_id = item.get("target_id") or ""
+        with st.container(border=True):
+            st.markdown(f"**{_safe_text(item.get('title') or item.get('type'))}**")
+            if item.get("reason"):
+                st.caption(_safe_text(item.get("reason")))
+            if item.get("suggested_action"):
+                st.info(_safe_text(item.get("suggested_action")))
+            meta = []
+            if target_id:
+                meta.append(f"target `{target_id}`")
+            if evidence_ids:
+                meta.append("evidence " + ", ".join(f"`{eid}`" for eid in evidence_ids[:6]))
+            if meta:
+                st.caption(" · ".join(meta))
+
 lang = st.session_state.get("lang", "zh")
 T = {
     "zh": {
@@ -231,13 +261,16 @@ if latest_report:
     report = latest_report.get("report") or {}
     warnings = report.get("warnings") or []
     highlights = report.get("highlights") or []
+    sections = report.get("sections") or {}
+    reviewable_counts = report.get("reviewable_counts") or {}
     with st.expander("最近一次学习报告", expanded=False):
         st.write(report.get("summary") or latest_report.get("summary"))
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("状态", report.get("status", "unknown"))
         c2.metric("节点变化", report.get("node_delta", 0))
         c3.metric("边变化", report.get("edge_delta", 0))
         c4.metric("耗时 ms", int(report.get("duration_ms") or 0))
+        c5.metric("待审阅", sum(int(v or 0) for v in reviewable_counts.values()))
         if highlights:
             st.markdown("**Highlights**")
             for item in highlights[:6]:
@@ -246,6 +279,14 @@ if latest_report:
             st.markdown("**Warnings**")
             for item in warnings[:6]:
                 st.warning(item)
+        if sections:
+            st.markdown("### 可审阅证据链")
+            _render_report_items("推荐动作", sections.get("recommended_actions") or [], limit=8)
+            _render_report_items("新记忆", sections.get("new_memories") or [])
+            _render_report_items("新概念", sections.get("new_concepts") or [])
+            _render_report_items("新技能候选", sections.get("new_skills") or [])
+            _render_report_items("技能状态变化", sections.get("skill_changes") or [])
+            _render_report_items("矛盾证据", sections.get("contradictions") or [])
 
 for log in logs:
     started = log.get("started_at", "")[:19].replace("T", " ")

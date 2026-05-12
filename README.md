@@ -15,7 +15,7 @@ Bionic Experience & Memory System — Agent memory, GraphRAG, vector search, pre
 [![Search](https://img.shields.io/badge/search-hybrid%20%7C%20precise%20%7C%20creative-orange?style=flat-square)](#knowledge-graph--multi-dimensional-retrieval)
 [![Memory](https://img.shields.io/badge/memory-predictive%20%2B%20dreaming-8A2BE2?style=flat-square)](#predictive-memory)
 
-[中文文档](docs/README_CN.md) · [Project Site](https://nianpangzhi233.github.io/Mnemosyne-AI-Memory/) · [FAQ](docs/faq.md) · [Benchmarks](docs/benchmarks.md) · [Why it matters](docs/why-it-matters.md) · [Releases](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/releases)
+    [中文文档](docs/README_CN.md) · [Architecture](docs/architecture.md) · [Cold-start demo](demo/demo_script.md) · [Project Site](https://nianpangzhi233.github.io/Mnemosyne-AI-Memory/) · [FAQ](docs/faq.md) · [Benchmarks](docs/benchmarks.md) · [Why it matters](docs/why-it-matters.md) · [Releases](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/releases)
 
 </div>
 
@@ -83,15 +83,36 @@ cd Mnemosyne-AI-Memory
 python setup.py
 ```
 
-Start the full stack in three shells:
+On Windows, start the local API and dashboard with the bundled shortcuts:
+
+```bash
+start-api.cmd
+start-dashboard.cmd
+```
+
+Manual startup works the same way:
 
 ```bash
 python scripts/api/start_api.py --port 8979
-streamlit run scripts/dashboard/app.py --server.port 8501
+streamlit run scripts/dashboard/app.py --server.port 8501 --server.headless=true --browser.gatherUsageStats=false
+```
+
+Run a full dream manually when you want consolidation now:
+
+```bash
 python scripts/graph_dream.py --full
 ```
 
-If you only want the main flow, run `python setup.py` first and then use `graph_write.py`, `graph_query.py`, and `graph_dream.py`.
+Run the safe cold-start demo first if you want to see the whole user story without touching your real databases:
+
+```bash
+python demo/run_demo.py
+python demo/run_demo.py --keep --out %TEMP%\mnemosyne-demo-kept
+```
+
+The demo imports safe seed conversations, creates typed graph evidence, writes a reviewable `EvolutionReport`, creates a low-risk trial skill, demonstrates skill injection, and records a telemetry run. A successful run prints `status: PASS` with explicit checks.
+
+If you only want the main memory flow, run `python setup.py` first and then use `graph_write.py`, `graph_query.py`, and `graph_dream.py`.
 
 ```python
 # Write an experience
@@ -200,6 +221,8 @@ The background skill daemon extends this with a post-dream skill loop:
 skill-daemon.cmd
 ```
 
+Dream output is reviewable, not just logged. Each run writes an `EvolutionReport` with structured sections such as new memories, concepts, skill candidates, skill changes, contradictions, recommended actions, target IDs, and evidence IDs. Daemon jobs also write persistent `telemetry_runs` rows with status, duration, summary, and errors so background work is observable.
+
 ### Skill Memory System
 
 v7.1 lets mature experience clusters grow into reusable, governed skills through bilateral evolution:
@@ -288,6 +311,17 @@ curl http://localhost:8979/api/health
 curl "http://localhost:8979/api/search?q=gzip&layer=L0&top=5"
 ```
 
+Operational endpoints expose learning reports and background observability:
+
+```text
+GET /api/evolution-reports/latest
+GET /api/evolution-reports
+GET /api/telemetry/latest
+GET /api/telemetry/summary
+GET /api/telemetry/runs
+GET /api/telemetry/runs/summary
+```
+
 ### CLI
 
 ```bash
@@ -322,11 +356,11 @@ streamlit run scripts/dashboard/app.py --server.port 8501 --server.headless=true
 
 | Page | Features |
 |------|----------|
-| Dashboard | Control console, quick search, health metrics, recent writes, audit signals |
-| Skills | Skill catalog, evidence flow, injection status, audit flags |
+| Dashboard | Control console, quick search, health metrics, latest learning report, daemon run history, audit signals |
+| Skills | Skill catalog, evidence flow, governance decisions, injection status, trial feedback, audit flags |
 | Search | Search + L0→L1→L2 progressive expand |
 | Graph | D3.js force-directed graph (zoom, drag, type coloring) |
-| Dream Log | Fast/Slow dream runs, phase timing, click to expand details |
+| Dream Log | Fast/Slow dream runs, phase timing, reviewable EvolutionReport sections, evidence IDs, recommended actions |
 
 ---
 
@@ -338,7 +372,8 @@ scripts/
 │   ├── graph_store.py   # Graph store interface
 │   ├── sqlite_store.py  # SQLite impl (vectors + FTS5 + graph traversal)
 │   ├── embedder.py      # Embedding interface (Harrier/BGE-M3/Qwen)
-│   └── dream_pipeline.py # Fast/Slow dream pipeline
+│   ├── dream_pipeline.py # Fast/Slow dream pipeline + EvolutionReport
+│   └── telemetry.py     # Local telemetry_runs persistence
 ├── api/                 # FastAPI REST API + Swagger
 ├── mcp_server/          # MCP Server (memory + skill tools, stdio)
 ├── dashboard/           # Streamlit visualization dashboard
@@ -347,6 +382,10 @@ scripts/
 ├── graph_query.py       # Query CLI
 ├── graph_dream.py       # Dream CLI
 └── graph_audit.py       # Health report + cleanup
+demo/
+├── seed_conversations/  # Safe public demo data
+├── expected/            # Expected demo check shape
+└── run_demo.py          # Cold-start user-story demo
 ```
 
 Every component is swappable through abstract interfaces:

@@ -12,6 +12,7 @@ from .sqlite_store import SQLiteStore
 from .vector_index import VectorIndex
 from .embedder import AbstractEmbedder, BgeM3Embedder, HarrierEmbedder, QwenEmbedder
 from .task_runner import AbstractTaskRunner, APSchedulerRunner, CeleryRunner
+from .telemetry import start_run, finish_run, fail_run, list_runs, summary as telemetry_summary
 from .skill_evolution import SkillEvolutionRunner
 from .runners import (
     OpenAICompatibleClient, OpenAICompatibleAgentRunner, OpenAICompatibleJudgeRunner,
@@ -36,6 +37,11 @@ __all__ = [
     "AbstractTaskRunner",
     "APSchedulerRunner",
     "CeleryRunner",
+    "start_run",
+    "finish_run",
+    "fail_run",
+    "list_runs",
+    "telemetry_summary",
     "SkillEvolutionRunner",
     "OpenAICompatibleClient",
     "OpenAICompatibleAgentRunner",

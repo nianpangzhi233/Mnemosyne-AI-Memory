@@ -15,7 +15,7 @@
 [![Search](https://img.shields.io/badge/search-hybrid%20%7C%20precise%20%7C%20creative-orange?style=flat-square)](#知识图谱--多维检索)
 [![Memory](https://img.shields.io/badge/memory-predictive%20%2B%20dreaming-8A2BE2?style=flat-square)](#预测式记忆)
 
-[English](../README.md) · [Project Site](https://nianpangzhi233.github.io/Mnemosyne-AI-Memory/) · [FAQ](faq.md) · [Benchmarks](benchmarks.md) · [Why it matters](why-it-matters.md) · [Releases](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/releases)
+[English](../README.md) · [当前架构](architecture.md) · [冷启动 Demo](../demo/demo_script.md) · [Project Site](https://nianpangzhi233.github.io/Mnemosyne-AI-Memory/) · [FAQ](faq.md) · [Benchmarks](benchmarks.md) · [Why it matters](why-it-matters.md) · [Releases](https://github.com/nianpangzhi233/Mnemosyne-AI-Memory/releases)
 
 </div>
 
@@ -83,13 +83,34 @@ cd Mnemosyne-AI-Memory
 python setup.py
 ```
 
-如果想先看完整效果，起三个窗口：
+Windows 下优先用自带脚本启动本地 API 和 Dashboard：
+
+```bash
+start-api.cmd
+start-dashboard.cmd
+```
+
+手动启动也可以：
 
 ```bash
 python scripts/api/start_api.py --port 8979
-streamlit run scripts/dashboard/app.py --server.port 8501
+streamlit run scripts/dashboard/app.py --server.port 8501 --server.headless=true --browser.gatherUsageStats=false
+```
+
+想立刻触发一次完整整合：
+
+```bash
 python scripts/graph_dream.py --full
 ```
+
+如果想先看完整用户故事，又不污染真实 `graph.db` / `dream_log.db`，跑安全冷启动 Demo：
+
+```bash
+python demo/run_demo.py
+python demo/run_demo.py --keep --out %TEMP%\mnemosyne-demo-kept
+```
+
+Demo 会导入安全三日样本，生成类型化图谱证据，写出可审阅 `EvolutionReport`，创建低风险 trial skill，演示技能注入，并记录 telemetry run。成功时输出 `status: PASS` 和明确检查项。
 
 ```python
 # 写入一条经验
@@ -198,6 +219,8 @@ python scripts/graph_dream.py --full
 skill-daemon.cmd
 ```
 
+做梦结果不是黑盒日志。每次运行会写入结构化 `EvolutionReport`，包含新记忆、新概念、技能候选、技能变化、矛盾、推荐动作、目标 ID 和证据 ID。后台 daemon job 也会写入持久化 `telemetry_runs`，记录状态、耗时、摘要和错误。
+
 ### Skill Memory System（技能记忆）
 
 v7.1 让成熟经验簇通过双边进化长成可复用、可治理的 Skill：
@@ -285,6 +308,17 @@ curl http://localhost:8979/api/health
 curl "http://localhost:8979/api/search?q=gzip&layer=L0&top=5"
 ```
 
+报告和后台观测端点：
+
+```text
+GET /api/evolution-reports/latest
+GET /api/evolution-reports
+GET /api/telemetry/latest
+GET /api/telemetry/summary
+GET /api/telemetry/runs
+GET /api/telemetry/runs/summary
+```
+
 ### CLI
 
 ```bash
@@ -310,15 +344,17 @@ python scripts/evaluate_skill.py \
 ## 可视化面板
 
 ```bash
-streamlit run scripts/dashboard/app.py --server.port 8501
+streamlit run scripts/dashboard/app.py --server.port 8501 --server.headless=true --browser.gatherUsageStats=false
+# Windows 快捷脚本：start-dashboard.cmd
 ```
 
 | 页面 | 功能 |
 |------|------|
-| Dashboard | 节点/边统计、类型分布、记忆排行 |
+| Dashboard | 控制台、快速搜索、健康指标、最近学习报告、daemon 运行历史、审计信号 |
+| Skills | 技能目录、证据流、治理决策、注入状态、trial 反馈、审计标记 |
 | Search | 搜索 + L0→L1→L2 逐层展开 |
 | Graph | D3.js 力导向图（缩放、拖拽、类型着色） |
-| Dream Log | Fast/Slow 做梦记录、阶段耗时、点击展开详情 |
+| Dream Log | Fast/Slow 做梦记录、阶段耗时、可审阅报告、证据 ID、推荐动作 |
 
 ---
 
@@ -330,7 +366,8 @@ scripts/
 │   ├── graph_store.py   # 图存储接口
 │   ├── sqlite_store.py  # SQLite 实现（向量 + FTS5 + 图遍历）
 │   ├── embedder.py      # 嵌入模型接口（Harrier/BGE-M3/Qwen）
-│   └── dream_pipeline.py # Fast/Slow 做梦流水线
+│   ├── dream_pipeline.py # Fast/Slow 做梦流水线 + EvolutionReport
+│   └── telemetry.py     # 本地 telemetry_runs 持久化
 ├── api/                 # FastAPI REST API + Swagger
 ├── mcp_server/          # MCP Server（记忆 + Skill 工具，stdio）
 ├── dashboard/           # Streamlit 可视化面板
@@ -339,6 +376,10 @@ scripts/
 ├── graph_query.py       # 查询 CLI
 ├── graph_dream.py       # 做梦 CLI
 └── graph_audit.py       # 健康报告 + 清理
+demo/
+├── seed_conversations/  # 安全公开 demo 数据
+├── expected/            # demo 期望检查结构
+└── run_demo.py          # 冷启动用户故事 demo
 ```
 
 每个组件通过抽象接口可替换：

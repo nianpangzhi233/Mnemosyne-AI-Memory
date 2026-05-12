@@ -150,6 +150,11 @@ def _init_dream_log(db_path: Optional[Path] = None):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_events_event_type ON telemetry_events(event_type)")
     conn.commit()
     conn.close()
+    try:
+        from .telemetry import init_telemetry
+        init_telemetry(target)
+    except ImportError:
+        pass
 
 
 def _result_status(result: dict) -> str:
@@ -158,10 +163,187 @@ def _result_status(result: dict) -> str:
     return result.get("status") or "PASS"
 
 
+def _short_text(value: Any, limit: int = 140) -> str:
+    text = str(value or "").replace("\n", " ").strip()
+    return text[:limit] + ("..." if len(text) > limit else "")
+
+
+def _report_item(item_type: str, title: str, target_id: str = None,
+                 evidence_ids: list = None, reason: str = None,
+                 suggested_action: str = None, **extra) -> dict:
+    item = {
+        "type": item_type,
+        "title": title,
+        "target_id": target_id,
+        "evidence_ids": [str(e) for e in (evidence_ids or []) if e],
+        "reason": reason,
+        "suggested_action": suggested_action,
+    }
+    item.update({k: v for k, v in extra.items() if v not in (None, "", [])})
+    return item
+
+
+def _node_report_item(node: dict, item_type: str = None) -> dict:
+    node_type = node.get("type") or item_type or "memory"
+    return _report_item(
+        node_type,
+        _short_text(node.get("principle") or node.get("content") or node.get("id")),
+        target_id=node.get("id"),
+        reason=f"New {node_type} node created during this dream run.",
+        suggested_action="Open the node evidence chain if this affects future behavior.",
+        task_type=node.get("task_type"),
+        project=node.get("project"),
+    )
+
+
+def _phase_lookup(results: List[Dict[str, Any]]) -> dict:
+    lookup = {}
+    for item in results:
+        result = item.get("result") if isinstance(item, dict) else {}
+        result = result if isinstance(result, dict) else {}
+        lookup[item.get("name", "unknown")] = result
+    return lookup
+
+
+def _skill_item_from_artifact(skill: dict, reason: str) -> dict:
+    evidence_ids = list(skill.get("source_node_ids") or []) + list(skill.get("evidence_node_ids") or [])
+    return _report_item(
+        "skill",
+        skill.get("name") or skill.get("slug") or skill.get("node_id"),
+        target_id=skill.get("node_id"),
+        evidence_ids=evidence_ids[:12],
+        reason=reason,
+        suggested_action="Review the skill card, evidence nodes, and latest decision before approving default injection.",
+        status=skill.get("status"),
+        review_status=skill.get("review_status"),
+        latest_decision=skill.get("latest_decision"),
+        latest_decision_reason=skill.get("latest_decision_reason"),
+    )
+
+
+def _build_report_sections(store: Optional[AbstractGraphStore], results: List[Dict[str, Any]],
+                           since_iso: str = None) -> dict:
+    sections = {
+        "new_memories": [],
+        "new_concepts": [],
+        "new_skills": [],
+        "skill_changes": [],
+        "contradictions": [],
+        "recommended_actions": [],
+    }
+    phase_results = _phase_lookup(results)
+
+    for phase_name, result in phase_results.items():
+        for skill_id in result.get("created_skill_ids") or []:
+            sections["new_skills"].append(_report_item(
+                "skill",
+                f"Skill candidate {str(skill_id)[:10]}",
+                target_id=skill_id,
+                evidence_ids=result.get("source_node_ids") or [],
+                reason=f"{phase_name} created a new skill candidate.",
+                suggested_action="Open the skill, inspect source memories, then run Darwin baseline comparison before approval.",
+            ))
+        for key in ("developed_skill_ids", "evolved_skill_ids", "approved_skill_ids", "deprecated_skill_ids"):
+            for skill_id in result.get(key) or []:
+                sections["skill_changes"].append(_report_item(
+                    "skill_change",
+                    f"{key.replace('_skill_ids', '')}: {str(skill_id)[:10]}",
+                    target_id=skill_id,
+                    reason=f"{phase_name} reported {key}.",
+                    suggested_action="Review latest decision reason and evidence before relying on this status change.",
+                ))
+
+    if store is not None:
+        try:
+            node_where = "created_at >= ?" if since_iso else ""
+            node_params = (since_iso,) if since_iso else ()
+            recent_nodes = store.query_nodes(node_where, node_params)[:50]
+            for node in recent_nodes:
+                full_node = store.get_node(node.get("id")) or node
+                node_type = full_node.get("type")
+                if node_type in {"experience", "correction", "strategy"} and len(sections["new_memories"]) < 8:
+                    sections["new_memories"].append(_node_report_item(full_node))
+                if node_type == "concept" and len(sections["new_concepts"]) < 8:
+                    sections["new_concepts"].append(_node_report_item(full_node, "concept"))
+        except Exception:
+            pass
+
+        try:
+            if hasattr(store, "list_skill_artifacts"):
+                created_ids = {item.get("target_id") for item in sections["new_skills"]}
+                for artifact in store.list_skill_artifacts(statuses=["embryo", "draft", "tested", "evolved", "approved", "needs_revision"]):
+                    skill_id = artifact.get("node_id")
+                    if skill_id in created_ids:
+                        sections["new_skills"] = [
+                            _skill_item_from_artifact(artifact, "Skill candidate was created during this dream run.")
+                            if item.get("target_id") == skill_id else item
+                            for item in sections["new_skills"]
+                        ]
+                    latest_decision = artifact.get("latest_decision")
+                    if latest_decision in {"evolved", "needs_revision", "rejected", "deprecated", "audit_hold"}:
+                        sections["skill_changes"].append(_skill_item_from_artifact(
+                            artifact,
+                            "Skill has a governance decision that may affect injection or revision.",
+                        ))
+        except Exception:
+            pass
+
+        try:
+            edge_where = "relation_type='contradicts' AND status='active'"
+            edge_params = ()
+            if since_iso:
+                edge_where += " AND created_at >= ?"
+                edge_params = (since_iso,)
+            for edge in store.query_edges(edge_where, edge_params)[:12]:
+                sections["contradictions"].append(_report_item(
+                    "contradiction",
+                    f"Contradiction {edge.get('from_id', '')[:8]} -> {edge.get('to_id', '')[:8]}",
+                    target_id=edge.get("id"),
+                    evidence_ids=[edge.get("from_id"), edge.get("to_id")],
+                    reason="Dream detected an active contradiction edge.",
+                    suggested_action="Inspect both memories and decide which prediction or condition should be revised.",
+                    weight=edge.get("weight"),
+                ))
+        except Exception:
+            pass
+
+    for item in sections["contradictions"][:3]:
+        sections["recommended_actions"].append(_report_item(
+            "review_contradiction",
+            "Review contradiction",
+            target_id=item.get("target_id"),
+            evidence_ids=item.get("evidence_ids"),
+            reason=item.get("reason"),
+            suggested_action=item.get("suggested_action"),
+        ))
+    for item in sections["new_skills"][:3]:
+        sections["recommended_actions"].append(_report_item(
+            "review_skill_candidate",
+            "Review new skill candidate",
+            target_id=item.get("target_id"),
+            evidence_ids=item.get("evidence_ids"),
+            reason=item.get("reason"),
+            suggested_action=item.get("suggested_action"),
+        ))
+    for item in sections["skill_changes"][:3]:
+        sections["recommended_actions"].append(_report_item(
+            "review_skill_change",
+            "Review skill governance change",
+            target_id=item.get("target_id"),
+            evidence_ids=item.get("evidence_ids"),
+            reason=item.get("reason"),
+            suggested_action=item.get("suggested_action"),
+        ))
+
+    return sections
+
+
 def _build_evolution_report(dream_id: str, results: List[Dict[str, Any]], status: str,
                             nodes_before: int, edges_before: int,
                             nodes_after: int, edges_after: int,
-                            duration_ms: float) -> dict:
+                            duration_ms: float,
+                            store: Optional[AbstractGraphStore] = None,
+                            since_iso: str = None) -> dict:
     phase_summaries = []
     highlights = []
     warnings = []
@@ -189,10 +371,12 @@ def _build_evolution_report(dream_id: str, results: List[Dict[str, Any]], status
         if phase_status in {"WARN", "ERROR", "FAIL"}:
             warnings.append(f"{name}: {phase_status}")
 
+    sections = _build_report_sections(store, results, since_iso=since_iso)
+    reviewable_counts = {key: len(value) for key, value in sections.items()}
     summary = (
         f"Dream {status}: nodes {nodes_before}->{nodes_after}, "
         f"edges {edges_before}->{edges_after}, phases {len(results)}, "
-        f"duration {duration_ms:.0f}ms."
+        f"duration {duration_ms:.0f}ms, review_items {sum(reviewable_counts.values())}."
     )
     report = {
         "dream_id": dream_id,
@@ -204,6 +388,8 @@ def _build_evolution_report(dream_id: str, results: List[Dict[str, Any]], status
         "highlights": highlights[:12],
         "warnings": warnings[:12],
         "phases": phase_summaries,
+        "sections": sections,
+        "reviewable_counts": reviewable_counts,
         "next_actions": _next_actions_for_report(status, warnings, highlights),
     }
     return report
@@ -289,6 +475,8 @@ class DreamPipeline:
                 dream_id, results, final_status,
                 nodes_before, edges_before, nodes_after, edges_after,
                 dream_duration_ms,
+                store=store,
+                since_iso=started,
             )
             log_conn.execute(
                 "INSERT INTO dreams(id, started_at, finished_at, status, nodes_before, edges_before, nodes_after, edges_after, phases) VALUES (?,?,?,?,?,?,?,?,?)",

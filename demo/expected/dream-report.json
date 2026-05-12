@@ -1,0 +1,14 @@
+{
+  "status": "PASS",
+  "checks": {
+    "seed_memories_imported": true,
+    "solves_edge_created": true,
+    "concept_created": true,
+    "transfers_created": true,
+    "report_created": true,
+    "report_has_evidence": true,
+    "skill_candidate_created": true,
+    "injection_demo": true,
+    "telemetry_run_created": true
+  }
+}

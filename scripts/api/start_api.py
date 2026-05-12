@@ -31,6 +31,7 @@ from core.sqlite_store import SQLiteStore
 from core.embedder import HarrierEmbedder
 from core.contracts import serialize_node_fields
 from core.dream_pipeline import _init_dream_log
+from core import telemetry as telemetry_store
 
 app = FastAPI(
     title="Mnemosyne API",
@@ -265,6 +266,24 @@ def telemetry_summary():
         (dream_id,),
     )
     return {"latest_dream": latest[0], "by_status": rows, "latest_phase_summary": phases[0] if phases else None}
+
+
+@app.get("/api/telemetry/runs", tags=["Dream"])
+def telemetry_runs(
+    limit: int = Query(20, ge=1, le=100),
+    run_type: str = Query(None, description="Filter by run type: dream_full / skill_auto_loop / skill_audit"),
+):
+    if not isinstance(limit, int):
+        limit = 20
+    if not isinstance(run_type, str):
+        run_type = None
+    runs = telemetry_store.list_runs(limit=limit, run_type=run_type, db_path=DREAM_LOG_DB)
+    return {"runs": runs, "total": len(runs)}
+
+
+@app.get("/api/telemetry/runs/summary", tags=["Dream"])
+def telemetry_runs_summary():
+    return telemetry_store.summary(db_path=DREAM_LOG_DB)
 
 
 # ── Entry Point ──────────────────────────────────────────────

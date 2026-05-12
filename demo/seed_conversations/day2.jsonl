@@ -1,0 +1,2 @@
+{"id":"solution-gzip","day":2,"content":"Gunzip request bodies before JSON.parse in the API gateway.","principle":"Check content encoding before parsing request bodies.","task_type":"api_proxy","metadata":{"outcome":"success","solution":"gunzip before parse","entities":["gzip","json"]}}
+{"id":"contract-b","day":2,"content":"testing work benefited from explicit field contracts.","principle":"Use explicit contracts before adding new memory fields.","task_type":"testing","metadata":{"outcome":"success","solution":"contract first","entities":["contract","field"]}}
