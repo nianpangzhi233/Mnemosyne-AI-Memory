@@ -87,6 +87,45 @@ def _status_class(status):
     return "pill-amber"
 
 
+def _quality_grade(skill):
+    decision = skill.get("latest_decision") or skill.get("review_status") or skill.get("status")
+    if decision in {"needs_revision", "rejected"} or skill.get("needs_revision"):
+        return "D", "需修订"
+    if skill.get("status") == "deprecated":
+        return "F", "已停用"
+    darwin = skill.get("latest_darwin_score")
+    mnemosyne = skill.get("latest_mnemosyne_score")
+    delta = skill.get("latest_live_test_delta")
+    if darwin is None and mnemosyne is None:
+        return "?", "尚未实测"
+    if (delta or 0) < 0:
+        return "D", "实测退步"
+    score = min(v for v in (darwin, mnemosyne) if v is not None)
+    if score >= 90:
+        return "A", "证据强"
+    if score >= 80:
+        return "B", "可试用"
+    if score >= 70:
+        return "C", "需补证据"
+    return "D", "需修订"
+
+
+def _next_action(skill, audit_required):
+    if skill.get("status") == "deprecated":
+        return "已停用，除非有新证据否则不要恢复"
+    if skill.get("latest_eval_mode") is None:
+        return "先跑 Darwin baseline 对比测试"
+    if skill.get("latest_decision") == "needs_revision" or skill.get("needs_revision"):
+        return "查看失败原因并修复后复测"
+    if audit_required:
+        return "暂停默认注入并复审"
+    if skill.get("status") == "approved" and skill.get("inject_enabled"):
+        return "继续使用，定期抽检"
+    if skill.get("latest_decision") == "evolved":
+        return "可进入 trial 或人工批准"
+    return "补充真实任务证据"
+
+
 st.title(L["title"])
 st.caption(L["subtitle"])
 
@@ -144,7 +183,21 @@ else:
                 metadata = {}
         usage_loop = metadata.get("usage_loop") if isinstance(metadata, dict) else {}
         usage_loop = usage_loop if isinstance(usage_loop, dict) else {}
-        audit_required = bool(usage_loop.get("audit_failures") or usage_loop.get("trigger_mismatch_count") or skill.get("needs_revision"))
+        audit_required = bool(
+            usage_loop.get("audit_failures")
+            or usage_loop.get("trigger_mismatch_count")
+            or skill.get("needs_revision")
+            or skill.get("status") == "needs_revision"
+            or skill.get("review_status") == "needs_revision"
+            or skill.get("latest_decision") == "needs_revision"
+        )
+        grade, grade_hint = _quality_grade(skill)
+        grade_class = "pill-green" if grade in {"A", "B"} else "pill-red" if grade in {"D", "F"} else "pill-amber"
+        next_action = _next_action(skill, audit_required)
+        latest_darwin = skill.get("latest_darwin_score")
+        latest_mnemosyne = skill.get("latest_mnemosyne_score")
+        latest_delta = skill.get("latest_live_test_delta")
+        static_score = skill.get("mnemosyne_score") or skill.get("final_score") or 0
 
         c1, c2 = st.columns([1.4, 1])
         with c1:
@@ -155,6 +208,7 @@ else:
                         <h3>{_safe_text(skill.get('name'))}</h3>
                         <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
                             {_pill(_safe_text(skill.get('status')), _status_class(skill.get('status')))}
+                            {_pill('质量 ' + grade, grade_class)}
                             {_pill(_safe_text(skill.get('risk_level') or 'medium'), 'pill-amber' if skill.get('risk_level') == 'medium' else 'pill-red' if skill.get('risk_level') == 'high' else 'pill-green')}
                             {_pill('默认注入' if skill.get('inject_enabled') else '暂不注入', 'pill-green' if skill.get('inject_enabled') else 'pill-gray')}
                             {_pill('审计关注' if audit_required else '状态正常', 'pill-red' if audit_required else 'pill-green')}
@@ -166,11 +220,14 @@ else:
                         <div><strong>{L['precondition']}:</strong> {', '.join(preconditions) if preconditions else '∅'}</div>
                         <div><strong>{L['procedure']}：</strong> {len(procedure)} 步</div>
                         <div><strong>{L['evidence']}：</strong> 来源 {len(skill.get('source_node_ids') or [])}，证据 {len(skill.get('evidence_node_ids') or [])}</div>
+                        <div><strong>Darwin：</strong> {latest_darwin if latest_darwin is not None else '未实测'} · <strong>Mnemosyne：</strong> {latest_mnemosyne if latest_mnemosyne is not None else '未实测'} · <strong>Δ：</strong> {latest_delta if latest_delta is not None else '∅'}</div>
+                        <div><strong>决策：</strong> {_safe_text(skill.get('latest_decision') or '尚无')} · {_safe_text(skill.get('latest_decision_reason') or grade_hint)}</div>
+                        <div><strong>下一步：</strong> {_safe_text(next_action)}</div>
                     </div>
                     <div class="skill-meta">
                         <span>{L['feedback']}：{skill.get('trial_success_count') or 0} 成功 / {skill.get('trial_failure_count') or 0} 失败</span>
                         <span>版本 v{_safe_text(skill.get('version') or '0.1.0')}</span>
-                        <span>评分 {skill.get('mnemosyne_score') or skill.get('final_score') or 0}</span>
+                        <span>格式预检 {static_score}</span>
                         <span>审核 {skill.get('review_status') or 'draft'}</span>
                     </div>
                 </div>
@@ -186,6 +243,7 @@ else:
                         <div><strong>审核状态</strong><br><span style="color:{KIMI_GRAY};">{_safe_text(skill.get('review_status') or '草稿')}</span></div>
                         <div><strong>批准模式</strong><br><span style="color:{KIMI_GRAY};">{_safe_text(skill.get('approval_mode') or '无')}</span></div>
                         <div><strong>最近审计</strong><br><span style="color:{KIMI_GRAY};">{_safe_text(usage_loop.get('last_audit_reason') or '无')}</span></div>
+                        <div><strong>最新决策原因</strong><br><span style="color:{KIMI_GRAY};">{_safe_text(skill.get('latest_decision_reason') or '无')}</span></div>
                     </div>
                     """,
                     unsafe_allow_html=True,

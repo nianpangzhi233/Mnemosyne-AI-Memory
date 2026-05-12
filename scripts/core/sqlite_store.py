@@ -1483,34 +1483,48 @@ class SQLiteStore(AbstractGraphStore):
         source_count = len(artifact.get("source_node_ids") or [])
         evidence_count = len(artifact.get("evidence_node_ids") or [])
 
-        mnemosyne = 0
-        mnemosyne += 20 if source_count >= 2 else 10 if source_count == 1 else 0
-        mnemosyne += 15 if trigger_count >= 2 else 8 if trigger_count == 1 else 0
-        mnemosyne += 15 if procedure_count >= 3 else 10 if procedure_count >= 2 else 0
-        mnemosyne += 15 if artifact.get("verification") else 0
-        mnemosyne += 10 if failure_count else 0
-        mnemosyne += 10 if artifact.get("risk_level") in RISK_LEVELS else 0
-        mnemosyne += 10 if evidence_count or source_count else 0
-        mnemosyne += 5 if len(markdown) >= 300 else 2
+        procedure_text = "\n".join(str(step) for step in artifact.get("procedure") or [])
+        frontmatter = 8 if artifact.get("name") and trigger_count else 6 if artifact.get("name") else 3
+        workflow = 9 if procedure_count >= 5 else 8 if procedure_count >= 3 else 6 if procedure_count >= 2 else 3
+        boundary = 8 if failure_count >= 2 else 6 if failure_count == 1 else 3
+        checkpoint = 7 if "ask" in markdown.lower() or "确认" in markdown else 5 if artifact.get("preconditions") else 3
+        specificity = 9 if len(procedure_text) >= 280 and artifact.get("verification") else 7 if procedure_count >= 3 else 4
+        resources = 9 if source_count >= 3 and evidence_count >= 1 else 7 if source_count >= 2 else 4 if source_count else 2
+        architecture = 8 if markdown.count("## ") >= 5 and artifact.get("verification") else 7 if markdown.count("## ") >= 4 else 5
 
-        darwin = 0
-        darwin += 8 if "> Status:" in markdown and "> Node:" in markdown else 4
-        darwin += 15 if "## Procedure" in markdown and procedure_count >= 2 else 6
-        darwin += 10 if failure_count else 3
-        darwin += 7 if "## Verification" in markdown and artifact.get("verification") else 2
-        darwin += 15 if trigger_count and procedure_count >= 2 else 6
-        darwin += 5 if "## Evidence" in markdown else 0
-        darwin += 15 if markdown.count("## ") >= 6 else 8
-        darwin += 25 if procedure_count >= 3 and artifact.get("verification") else 12
-
-        mnemosyne_score = round(min(100, mnemosyne), 1)
-        darwin_score = round(min(100, darwin), 1)
-        final_score = round(0.6 * mnemosyne_score + 0.4 * darwin_score, 1)
+        # Darwin's rubric is intentionally conservative: static structure can
+        # never prove functional value. Dimension 8 stays neutral until live
+        # baseline-vs-skill evaluation supplies real evidence.
+        measured_effect = 5.0
+        structure_points = (
+            frontmatter * 8 + workflow * 15 + boundary * 10 + checkpoint * 7 +
+            specificity * 15 + resources * 5 + architecture * 15
+        ) / 10
+        effect_points = measured_effect * 25 / 10
+        darwin_score = round(min(100, structure_points + effect_points), 1)
+        mnemosyne_score = round(min(100, (
+            min(100, source_count * 25 + evidence_count * 20) * 0.35 +
+            (80 if 1 <= trigger_count <= 6 else 40) * 0.20 +
+            (80 if artifact.get("verification") else 40) * 0.20 +
+            (75 if artifact.get("risk_level") in RISK_LEVELS else 40) * 0.10 +
+            measured_effect * 10 * 0.15
+        )), 1)
+        final_score = round(0.5 * mnemosyne_score + 0.5 * darwin_score, 1)
         return {
             "mnemosyne_score": mnemosyne_score,
             "darwin_score": darwin_score,
             "final_score": final_score,
             "breakdown": {
+                "frontmatter": frontmatter,
+                "workflow": workflow,
+                "boundary": boundary,
+                "checkpoint": checkpoint,
+                "specificity": specificity,
+                "resources": resources,
+                "architecture": architecture,
+                "measured_effect": measured_effect,
+                "structure_points": round(structure_points, 1),
+                "effect_points": round(effect_points, 1),
                 "trigger_count": trigger_count,
                 "procedure_count": procedure_count,
                 "failure_count": failure_count,
@@ -1519,6 +1533,56 @@ class SQLiteStore(AbstractGraphStore):
                 "markdown_chars": len(markdown),
             },
         }
+
+    def record_skill_verification_evidence(self, skill_id: str, darwin_result: Dict[str, Any],
+                                           prompt_results: List[Dict[str, Any]] = None) -> Optional[str]:
+        artifact = self.get_skill_artifact(skill_id)
+        if not artifact:
+            raise ValueError(f"skill artifact not found: {skill_id}")
+        if not darwin_result.get("passed"):
+            return None
+        if darwin_result.get("eval_mode") == "dry_run":
+            return None
+        if (darwin_result.get("live_test_delta") or 0) <= 0:
+            return None
+        if darwin_result.get("regression_count"):
+            return None
+
+        prompt_results = prompt_results or darwin_result.get("prompt_results") or []
+        content = (
+            f"Darwin full-test verification for skill {skill_id}\n"
+            f"Skill: {artifact.get('name') or skill_id}\n"
+            f"Darwin score: {darwin_result.get('darwin_score')}\n"
+            f"Average baseline score: {darwin_result.get('baseline_score')}\n"
+            f"Average with-skill score: {darwin_result.get('with_skill_score')}\n"
+            f"Average live delta: {darwin_result.get('live_test_delta')}\n"
+            f"Regression count: {darwin_result.get('regression_count')}\n"
+            f"Prompt count: {len(prompt_results)}"
+        )
+        evidence_id = self.add_node(
+            content=content,
+            node_type="skill_feedback",
+            task_type="skill_memory",
+            tags=["skill_verification", "darwin_full_test", "verified_by"],
+            principle="Darwin full-test evidence should count as skill verification",
+            context_tags=["skill_memory", "darwin", "full_test", skill_id],
+            metadata={
+                "skill_id": skill_id,
+                "eval_mode": darwin_result.get("eval_mode"),
+                "darwin_score": darwin_result.get("darwin_score"),
+                "baseline_score": darwin_result.get("baseline_score"),
+                "with_skill_score": darwin_result.get("with_skill_score"),
+                "live_test_delta": darwin_result.get("live_test_delta"),
+                "regression_count": darwin_result.get("regression_count"),
+                "prompt_results": prompt_results,
+            },
+        )
+        self.add_edge(skill_id, evidence_id, "verified_by", weight=0.85, source="darwin_full_test")
+        evidence_ids = list(artifact.get("evidence_node_ids") or [])
+        if evidence_id not in evidence_ids:
+            evidence_ids.append(evidence_id)
+            self.update_skill_artifact(skill_id, evidence_node_ids=evidence_ids)
+        return evidence_id
 
     def record_skill_evolution_run(self, skill_node_id: str, old_score: float = None,
                                    new_score: float = None, mnemosyne_score: float = None,
@@ -1727,9 +1791,12 @@ class SQLiteStore(AbstractGraphStore):
 
         evidence = min(100, len(source_ids) * 30 + len(evidence_ids) * 20)
         cluster_quality = min(100, len(source_ids) * 25)
-        verification = min(100, verified_edges * 45 + success_count * 15)
+        verification = min(100, verified_edges * 60 + success_count * 15)
         trigger_precision = 80 if 1 <= trigger_count <= 3 else 65 if 4 <= trigger_count <= 6 else 0
-        feedback = 50 if trial_count == 0 else max(0, min(100, 50 + success_count * 20 - failure_count * 35))
+        if trial_count == 0 and verified_edges:
+            feedback = 75
+        else:
+            feedback = 50 if trial_count == 0 else max(0, min(100, 50 + success_count * 20 - failure_count * 35))
         safety = {"low": 100, "medium": 75, "high": 35}.get(risk_level, 40)
 
         score = round(

@@ -1,0 +1,37 @@
+{
+  "skill": "类推借用",
+  "dimensions": {
+    "frontmatter": 8,
+    "workflow": 8,
+    "boundaries": 6,
+    "checkpoints": 5,
+    "specificity": 8,
+    "resources": 4,
+    "architecture": 8,
+    "effect": 8
+  },
+  "cases": [
+    {
+      "id": "classroom-feedback",
+      "baseline_score": 8,
+      "with_skill_score": 9,
+      "delta": 1,
+      "reason": "Both answers were useful, but the skill answer produced transferable principles and a clearer multi-domain rationale."
+    },
+    {
+      "id": "newcomer-onboarding",
+      "baseline_score": 8,
+      "with_skill_score": 9,
+      "delta": 1,
+      "reason": "The skill answer transformed generic onboarding advice into a task-path/map/pheromone mechanism with clearer principles."
+    },
+    {
+      "id": "skill-dashboard",
+      "baseline_score": 8,
+      "with_skill_score": 9,
+      "delta": 1,
+      "reason": "The skill answer introduced triage, CI gates, evidence strength, and Bayesian trend concepts that directly improved the dashboard design."
+    }
+  ],
+  "summary": "类推借用在复杂设计问题上有稳定正向增益，但不是碾压 baseline。它的主要短板是边界条件和用户检查点不足，容易输出长报告而不是按用户时间预算裁剪。"
+}

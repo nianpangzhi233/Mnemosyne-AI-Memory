@@ -162,9 +162,17 @@ def run_skill_auto_loop_once() -> dict:
     config = _load_llm_config()
     agent_runner, judge_runner, runner_mode = _make_runners(config)
     candidates = []
+    priority = {"draft": 0, "tested": 1, "evolved": 2, "embryo": 3, "needs_revision": 4}
     for artifact in store.list_skill_artifacts(statuses=["embryo", "draft", "tested", "evolved", "needs_revision"]):
-        if artifact.get("status") in {"embryo", "draft", "tested", "evolved", "needs_revision"} or artifact.get("needs_revision"):
-            candidates.append(artifact)
+        status = artifact.get("status")
+        never_evaluated = artifact.get("latest_eval_mode") is None
+        if status == "needs_revision" and not never_evaluated:
+            # Needs-revision skills should not permanently block fresh drafts.
+            # Re-run them only after a human or later repair pass changes state.
+            continue
+        artifact["_auto_priority"] = (priority.get(status, 9), 0 if never_evaluated else 1, artifact.get("updated_at") or "")
+        candidates.append(artifact)
+    candidates.sort(key=lambda item: item.get("_auto_priority"))
     evolved = []
     feedback = []
     promotions = []

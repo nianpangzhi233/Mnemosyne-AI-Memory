@@ -830,7 +830,7 @@ class SkillEmbryoPhase(DreamPhase):
     def _existing_skill_source_sets(store) -> List[set]:
         if not hasattr(store, "list_skill_artifacts"):
             return []
-        artifacts = store.list_skill_artifacts(statuses=["embryo", "draft", "evolved", "approved"])
+        artifacts = store.list_skill_artifacts(statuses=["embryo", "draft", "tested", "evolved", "approved", "needs_revision", "rejected"])
         source_sets = []
         for artifact in artifacts:
             sources = artifact.get("source_node_ids") or []

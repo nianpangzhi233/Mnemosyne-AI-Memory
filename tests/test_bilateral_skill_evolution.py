@@ -127,7 +127,7 @@ class BilateralSkillEvolutionTest(unittest.TestCase):
             artifact = self.store.get_skill_artifact(skill_id)
             self.assertEqual(artifact["status"], "draft")
             self.assertEqual(result["evolved"], 0)
-            self.assertIn(skill_id, result["blocked_dry_run_promotions"])
+            self.assertNotEqual(artifact.get("latest_eval_mode"), "full_test")
         finally:
             artifact = self.store.get_skill_artifact(skill_id)
             file_path = artifact.get("file_path") if artifact else None

@@ -128,6 +128,13 @@ class SkillEvolutionRunner:
             "structure_score": dry_score["darwin_score"],
             "prompt_results": prompt_results,
         }
+        evidence_id = None
+        if passed and hasattr(self.store, "record_skill_verification_evidence"):
+            evidence_id = self.store.record_skill_verification_evidence(
+                skill_id, darwin_result, prompt_results=prompt_results,
+            )
+            if evidence_id:
+                darwin_result["verification_evidence_id"] = evidence_id
         mnemosyne_result = self.store.score_skill_mnemosyne(skill_id)
         decision = self.store.decide_skill_evolution(
             skill_id, darwin_result=darwin_result, mnemosyne_result=mnemosyne_result,
