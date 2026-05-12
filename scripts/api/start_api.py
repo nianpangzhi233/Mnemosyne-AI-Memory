@@ -13,9 +13,11 @@
 """
 
 import argparse
+import json
+import sqlite3
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -27,6 +29,8 @@ if str(scripts_dir) not in sys.path:
 
 from core.sqlite_store import SQLiteStore
 from core.embedder import HarrierEmbedder
+from core.contracts import serialize_node_fields
+from core.dream_pipeline import _init_dream_log
 
 app = FastAPI(
     title="Mnemosyne API",
@@ -35,6 +39,8 @@ app = FastAPI(
 )
 
 _store: Optional[SQLiteStore] = None
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+DREAM_LOG_DB = PROJECT_ROOT / "dream_log.db"
 
 
 def _get_store() -> SQLiteStore:
@@ -42,6 +48,29 @@ def _get_store() -> SQLiteStore:
     if _store is None:
         _store = SQLiteStore(embedder=HarrierEmbedder())
     return _store
+
+
+def _dream_log_rows(query: str, params: tuple = ()) -> List[Dict[str, Any]]:
+    _init_dream_log(DREAM_LOG_DB)
+    conn = sqlite3.connect(str(DREAM_LOG_DB))
+    try:
+        conn.row_factory = sqlite3.Row
+        return [dict(row) for row in conn.execute(query, params).fetchall()]
+    except sqlite3.Error:
+        return []
+    finally:
+        conn.close()
+
+
+def _json_field(value: Any, default: Any):
+    if value in (None, ""):
+        return default
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return default
 
 
 # ── Request / Response Models ───────────────────────────────
@@ -57,6 +86,7 @@ class WriteRequest(BaseModel):
     precondition: Optional[str] = Field(None, description="Environmental condition")
     predicted_outcome: Optional[str] = Field(None, description="Predicted result")
     context_tags: Optional[List[str]] = Field(None, description="Context tags")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Structured metadata")
     contradicts: Optional[str] = Field(None, description="Node ID being corrected")
 
 
@@ -101,6 +131,7 @@ def write(req: WriteRequest):
         precondition=req.precondition,
         predicted_outcome=req.predicted_outcome,
         context_tags=req.context_tags,
+        metadata=req.metadata,
     )
     if req.contradicts:
         store.add_edge(node_id, req.contradicts, "contradicts", weight=0.7, source="api")
@@ -121,11 +152,11 @@ def search(
     if mode in ("precise", "creative"):
         results = store.search_spreading(q, mode=mode, graph_dims=[graph_dim] if graph_dim else None, tags=tag_list, top=top, layer=layer)
     elif mode == "vector":
-        results = store.search_by_vector(q, top=top, layer=layer)
+        results = store.search_by_vector(q, top=top, layer=layer, tags=tag_list)
     elif mode == "keyword":
-        results = store.search_by_keyword(q, top=top, layer=layer)
+        results = store.search_by_keyword(q, top=top, layer=layer, tags=tag_list)
     else:
-        results = store.search_hybrid(q, top=top, layer=layer)
+        results = store.search_hybrid(q, top=top, layer=layer, tags=tag_list)
     return {"results": results, "total": len(results)}
 
 
@@ -153,12 +184,22 @@ class UpdateRequest(BaseModel):
     confidence: Optional[float] = None
     context_tags: Optional[List[str]] = None
     principle: Optional[str] = None
+    task_type: Optional[str] = None
+    project: Optional[str] = None
+    tags: Optional[List[str]] = None
+    metadata: Optional[Dict[str, Any]] = None
+    precondition: Optional[str] = None
+    predicted_outcome: Optional[str] = None
+    half_life_days: Optional[float] = None
+    tier: Optional[str] = None
+    decay_score: Optional[float] = None
+    base_score: Optional[float] = None
 
 
 @app.patch("/api/node/{node_id}", tags=["Memory"])
 def update_node(node_id: str, req: UpdateRequest):
     store = _get_store()
-    fields = {k: v for k, v in req.model_dump().items() if v is not None}
+    fields = serialize_node_fields({k: v for k, v in req.model_dump().items() if v is not None})
     if not fields:
         raise HTTPException(status_code=400, detail="No fields to update")
     ok = store.update_node(node_id, **fields)
@@ -174,6 +215,56 @@ def delete_node(node_id: str):
     if not ok:
         raise HTTPException(status_code=404, detail="Node not found")
     return {"id": node_id, "deleted": True}
+
+
+@app.get("/api/evolution-reports/latest", tags=["Dream"])
+def latest_evolution_report():
+    rows = _dream_log_rows(
+        "SELECT * FROM evolution_reports ORDER BY created_at DESC LIMIT 1"
+    )
+    if not rows:
+        return {"report": None}
+    row = rows[0]
+    return {"report": _json_field(row.get("report"), {})}
+
+
+@app.get("/api/evolution-reports", tags=["Dream"])
+def list_evolution_reports(limit: int = Query(10, ge=1, le=100)):
+    rows = _dream_log_rows(
+        "SELECT id, dream_id, created_at, status, summary FROM evolution_reports ORDER BY created_at DESC LIMIT ?",
+        (limit,),
+    )
+    return {"reports": rows, "total": len(rows)}
+
+
+@app.get("/api/telemetry/latest", tags=["Dream"])
+def latest_telemetry(limit: int = Query(20, ge=1, le=200)):
+    rows = _dream_log_rows(
+        "SELECT * FROM telemetry_events ORDER BY created_at DESC LIMIT ?",
+        (limit,),
+    )
+    for row in rows:
+        row["payload"] = _json_field(row.get("payload"), {})
+    return {"events": rows, "total": len(rows)}
+
+
+@app.get("/api/telemetry/summary", tags=["Dream"])
+def telemetry_summary():
+    latest = _dream_log_rows(
+        "SELECT dream_id, created_at, status, duration_ms FROM telemetry_events WHERE event_type='dream' ORDER BY created_at DESC LIMIT 1"
+    )
+    if not latest:
+        return {"latest_dream": None, "by_status": [], "latest_phase_summary": None}
+    dream_id = latest[0]["dream_id"]
+    rows = _dream_log_rows(
+        "SELECT status, COUNT(*) AS count, AVG(duration_ms) AS avg_duration_ms FROM telemetry_events WHERE dream_id=? GROUP BY status",
+        (dream_id,),
+    )
+    phases = _dream_log_rows(
+        "SELECT COUNT(*) AS count, AVG(duration_ms) AS avg_duration_ms, MAX(duration_ms) AS max_duration_ms FROM telemetry_events WHERE dream_id=? AND event_type='phase'",
+        (dream_id,),
+    )
+    return {"latest_dream": latest[0], "by_status": rows, "latest_phase_summary": phases[0] if phases else None}
 
 
 # ── Entry Point ──────────────────────────────────────────────

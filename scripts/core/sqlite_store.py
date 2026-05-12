@@ -23,6 +23,15 @@ import sqlite3
 
 from .graph_store import AbstractGraphStore
 from .embedder import AbstractEmbedder, HarrierEmbedder
+from .vector_index import VectorIndex
+from .contracts import (
+    NODE_UPDATE_FIELDS,
+    build_context_tags,
+    merge_json_dicts,
+    merge_json_lists,
+    parse_json_list,
+    serialize_node_fields,
+)
 
 # 默认 db_path: scripts/core/../../graph.db → 项目根目录下
 _DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent.parent / "graph.db"
@@ -77,6 +86,9 @@ _TASK_TYPE_ALIASES = {
     "architecture design": "architecture",
     "architecture-design": "architecture",
     "architecture_design": "architecture",
+    "architecture decision": "memory_system",
+    "architecture-decision": "memory_system",
+    "architecture_decision": "memory_system",
     "architecture/refactoring": "architecture",
     "architecture-refactoring": "architecture",
     "architecture redesign": "architecture",
@@ -87,16 +99,28 @@ _TASK_TYPE_ALIASES = {
     "system-design-analysis": "architecture",
     "system audit": "memory_system",
     "system-audit": "memory_system",
+    "system architecture audit": "memory_system",
+    "system-architecture-audit": "memory_system",
+    "system_architecture_audit": "memory_system",
     "systematic audit": "memory_system",
     "systematic-audit": "memory_system",
     "system improvement": "memory_system",
     "system-improvement": "memory_system",
+    "system upgrade": "memory_system",
+    "system-upgrade": "memory_system",
+    "system_upgrade": "memory_system",
     "knowledge_graph_construction": "memory_system",
     "knowledge-graph-construction": "memory_system",
     "memory_maintenance": "memory_system",
     "memory-maintenance": "memory_system",
     "pipeline validation": "testing",
     "pipeline-validation": "testing",
+    "test design": "testing",
+    "test-design": "testing",
+    "test_design": "testing",
+    "test planning": "testing",
+    "test-planning": "testing",
+    "test_planning": "testing",
     "validation": "testing",
     "verification": "testing",
     "quality assurance": "testing",
@@ -122,19 +146,61 @@ _TASK_TYPE_ALIASES = {
     "code_fix_design_decision": "coding",
     "code maintenance": "coding",
     "code-maintenance": "coding",
+    "code modification": "coding",
+    "code-modification": "coding",
+    "code_modification": "coding",
+    "code refactoring": "coding",
+    "code-refactoring": "coding",
+    "code_refactoring": "coding",
     "code review": "coding",
     "code-review": "coding",
+    "code review gap analysis": "coding",
+    "code-review-gap-analysis": "coding",
+    "code_review_gap_analysis": "coding",
     "git workflow": "workflow",
     "git-workflow": "workflow",
+    "git usage": "workflow",
+    "git-usage": "workflow",
+    "git_usage": "workflow",
     "gitignore maintenance": "workflow",
     "gitignore-maintenance": "workflow",
+    "workflow instruction": "workflow",
+    "workflow-instruction": "workflow",
+    "workflow_instruction": "workflow",
+    "workflow optimization": "workflow",
+    "workflow-optimization": "workflow",
+    "workflow_optimization": "workflow",
     "task resumption": "workflow",
     "task-resumption": "workflow",
     "release prep": "deployment",
     "release-prep": "deployment",
     "tool design": "cli_tool",
     "tool-design": "cli_tool",
+    "tool usage": "cli_tool",
+    "tool-usage": "cli_tool",
+    "tool_usage": "cli_tool",
+    "cli improvement": "cli_tool",
+    "cli-improvement": "cli_tool",
+    "cli_improvement": "cli_tool",
     "localization": "documentation",
+    "feature specification": "documentation",
+    "feature-specification": "documentation",
+    "feature_specification": "documentation",
+    "image generation": "tupian",
+    "image-generation": "tupian",
+    "image_generation": "tupian",
+    "interface audit": "visual_design",
+    "interface-audit": "visual_design",
+    "interface_audit": "visual_design",
+    "cost optimization": "workflow",
+    "cost-optimization": "workflow",
+    "cost_optimization": "workflow",
+    "data normalization": "memory_system",
+    "data-normalization": "memory_system",
+    "data_normalization": "memory_system",
+    "bug fix system improvement": "memory_system",
+    "bug-fix-system-improvement": "memory_system",
+    "bug_fix_system_improvement": "memory_system",
     "system evaluation": "memory_system",
     "system-evaluation": "memory_system",
     "system_evaluation": "memory_system",
@@ -218,7 +284,6 @@ class SQLiteStore(AbstractGraphStore):
     def _ensure_task_type_index(self):
         if self._task_type_index is not None:
             return
-        from .vector_index import VectorIndex
         self._task_type_index = VectorIndex()
 
         conn = self._connect()
@@ -339,8 +404,13 @@ class SQLiteStore(AbstractGraphStore):
                  tags: Optional[list] = None, principle: Optional[str] = None,
                  precondition: Optional[str] = None,
                  predicted_outcome: Optional[str] = None,
+                 context_tags: Optional[list] = None,
+                 metadata: Optional[dict] = None,
                  **kwargs) -> str:
         task_type = self._resolve_task_type(content, task_type, project)
+        tags_json = json.dumps(tags or [], ensure_ascii=False)
+        context_tags_json = build_context_tags(context_tags, task_type, project)
+        metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
         conn = self._connect()
         try:
             cur = conn.cursor()
@@ -360,10 +430,13 @@ class SQLiteStore(AbstractGraphStore):
                     new_access = old_access + 1
                     cur.execute("""
                         UPDATE nodes SET base_score=?, decay_score=?,
-                                         access_count=?, last_access=?, updated_at=?
+                                          access_count=?, last_access=?, updated_at=?
                         WHERE id=?
                     """, (new_base, min(2.0, new_base * 1.2), new_access,
                           _now_iso(), _now_iso(), matched_id))
+                    self._merge_node_fields(cur, matched_id, task_type, project, tags_json,
+                                            metadata_json, context_tags_json,
+                                            precondition, predicted_outcome)
 
                     cur.execute(
                         "UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) "
@@ -399,10 +472,13 @@ class SQLiteStore(AbstractGraphStore):
                         new_base = min(1.5, old_base + 0.1)
                         cur.execute("""
                             UPDATE nodes SET base_score=?, decay_score=?,
-                                             access_count=access_count+1,
-                                             last_access=?, updated_at=?
+                                              access_count=access_count+1,
+                                              last_access=?, updated_at=?
                             WHERE id=?
                         """, (new_base, min(2.0, new_base * 1.2), _now_iso(), _now_iso(), best_id))
+                        self._merge_node_fields(cur, best_id, task_type, project, tags_json,
+                                                metadata_json, context_tags_json,
+                                                precondition, predicted_outcome)
 
                         cur.execute(
                             "UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) "
@@ -420,14 +496,11 @@ class SQLiteStore(AbstractGraphStore):
 
             node_id = str(uuid.uuid4())
             created = _now_iso()
-            tags_json = json.dumps(tags or [], ensure_ascii=False)
             abstract = self._make_abstract(content, principle)
             overview = self._make_overview(content, principle, tags_json)
 
             # Phase 3: new field defaults
             half_life = HALF_LIFE_BY_TYPE.get(node_type, 30.0)
-            _auto_tags = [t for t in [task_type, project] if t]
-            context_tags = json.dumps(_auto_tags, ensure_ascii=False) if _auto_tags else "[]"
 
             # Phase 3: precondition vector encoding
             precondition_vec = None
@@ -441,13 +514,14 @@ class SQLiteStore(AbstractGraphStore):
                                   abstract, overview,
                                   confidence, verified_count, half_life_days, context_tags,
                                   precondition, predicted_outcome, precondition_vec)
-                VALUES (?, ?, ?, ?, ?, 'hot', 0.8, 0.8, 1, ?, ?, ?, ?, ?, ?, '{}', ?, ?,
+                VALUES (?, ?, ?, ?, ?, 'hot', 0.8, 0.8, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                         1.0, 0, ?, ?, ?, ?, ?)
             """, (node_id, node_type, content, principle, vector_blob,
-                  created, created, created, task_type, project, tags_json,
-                  abstract, overview,
-                  half_life, context_tags,
-                  precondition, predicted_outcome, precondition_vec))
+                   created, created, created, task_type, project, tags_json,
+                   metadata_json,
+                   abstract, overview,
+                   half_life, context_tags_json,
+                   precondition, predicted_outcome, precondition_vec))
 
             if principle:
                 cur.execute("""
@@ -524,7 +598,7 @@ class SQLiteStore(AbstractGraphStore):
             cur.execute("""
                 SELECT id, type, content, principle, tier, decay_score, base_score,
                        access_count, last_access, created_at, updated_at,
-                       task_type, project, tags, metadata,
+                       task_type, project, tags, metadata, abstract, overview,
                        confidence, verified_at, verified_count, half_life_days,
                        precondition, predicted_outcome, context_tags, precondition_vec
                 FROM nodes WHERE id = ?
@@ -535,6 +609,7 @@ class SQLiteStore(AbstractGraphStore):
             keys = ["id", "type", "content", "principle", "tier", "decay_score",
                     "base_score", "access_count", "last_access", "created_at",
                     "updated_at", "task_type", "project", "tags", "metadata",
+                    "abstract", "overview",
                     "confidence", "verified_at", "verified_count", "half_life_days",
                     "precondition", "predicted_outcome", "context_tags", "precondition_vec"]
             result = dict(zip(keys, row))
@@ -774,14 +849,14 @@ class SQLiteStore(AbstractGraphStore):
             cur = conn.cursor()
             cur.execute("""
                 SELECT id, from_id, to_id, relation_type, weight, source,
-                       status, created_at
+                       status, created_at, graph_dim, strength
                 FROM edges WHERE id = ?
             """, (edge_id,))
             row = cur.fetchone()
             if row is None:
                 return None
             keys = ["id", "from_id", "to_id", "relation_type", "weight",
-                    "source", "status", "created_at"]
+                    "source", "status", "created_at", "graph_dim", "strength"]
             return dict(zip(keys, row))
         finally:
             conn.close()
@@ -813,19 +888,19 @@ class SQLiteStore(AbstractGraphStore):
 
                     # 正向边：from_id = nid
                     cur.execute("""
-                        SELECT e.relation_type, e.weight, e.source,
+                        SELECT e.relation_type, e.weight, e.source, e.graph_dim, e.strength,
                                n.id, n.content, n.tier, n.principle
                         FROM edges e
                         JOIN nodes n ON e.to_id = n.id
                         WHERE e.from_id = ? AND e.status = 'active'
                     """, (nid,))
                     for row in cur.fetchall():
-                        rel, weight, source, to_id, content, tier, principle = row
+                        rel, weight, source, graph_dim, strength, to_id, content, tier, principle = row
                         results.append({
                             "direction": "outgoing",
                             "from": nid, "to": to_id,
                             "relation": rel, "weight": weight,
-                            "source": source,
+                            "source": source, "graph_dim": graph_dim, "strength": strength,
                             "content": content, "tier": tier,
                             "principle": principle
                         })
@@ -835,19 +910,19 @@ class SQLiteStore(AbstractGraphStore):
 
                     # 反向边：to_id = nid
                     cur.execute("""
-                        SELECT e.relation_type, e.weight, e.source,
+                        SELECT e.relation_type, e.weight, e.source, e.graph_dim, e.strength,
                                n.id, n.content, n.tier, n.principle
                         FROM edges e
                         JOIN nodes n ON e.from_id = n.id
                         WHERE e.to_id = ? AND e.status = 'active'
                     """, (nid,))
                     for row in cur.fetchall():
-                        rel, weight, source, from_id, content, tier, principle = row
+                        rel, weight, source, graph_dim, strength, from_id, content, tier, principle = row
                         results.append({
                             "direction": "incoming",
                             "from": from_id, "to": nid,
                             "relation": rel, "weight": weight,
-                            "source": source,
+                            "source": source, "graph_dim": graph_dim, "strength": strength,
                             "content": content, "tier": tier,
                             "principle": principle
                         })
@@ -884,7 +959,7 @@ class SQLiteStore(AbstractGraphStore):
             scored = []
             for row in rows:
                 node_id, content, principle, vec_blob, tier, decay, task_type, project, abstract, overview = row
-                if vec_blob is None:
+                if vec_blob is None or not self._matches_node_filters(task_type, project, None, kwargs):
                     continue
                 vec = np.frombuffer(vec_blob, dtype=np.float32)
                 sim = float(np.dot(q_vec, vec))
@@ -923,9 +998,11 @@ class SQLiteStore(AbstractGraphStore):
 
             chain_scored = []
             for nid in chain_ids:
-                cur.execute("SELECT content, principle, vector, tier, decay_score, task_type, project, abstract, overview FROM nodes WHERE id=?", (nid,))
+                cur.execute("SELECT content, principle, vector, tier, decay_score, task_type, project, abstract, overview, context_tags FROM nodes WHERE id=?", (nid,))
                 row = cur.fetchone()
                 if not row or row[2] is None:
+                    continue
+                if not self._matches_node_filters(row[5], row[6], row[9], kwargs):
                     continue
                 vec = np.frombuffer(row[2], dtype=np.float32)
                 sim = float(np.dot(q_vec, vec))
@@ -974,7 +1051,7 @@ class SQLiteStore(AbstractGraphStore):
             cur = conn.cursor()
             cur.execute("""
                 SELECT n.id, n.content, n.principle, n.tier, n.decay_score,
-                       n.task_type, n.project, n.abstract, n.overview
+                       n.task_type, n.project, n.abstract, n.overview, n.context_tags
                 FROM fts_nodes
                 JOIN nodes n ON fts_nodes.id = n.id
                 WHERE fts_nodes MATCH ?
@@ -985,6 +1062,8 @@ class SQLiteStore(AbstractGraphStore):
 
             results = []
             for r in rows:
+                if not self._matches_node_filters(r[5], r[6], r[9], kwargs):
+                    continue
                 base = {"id": r[0], "tier": r[3], "decay_score": round(r[4], 3)}
                 if layer == "L0":
                     base["abstract"] = r[7] or r[1][:150]
@@ -1012,9 +1091,9 @@ class SQLiteStore(AbstractGraphStore):
                       keyword_weight: float = 0.3,
                       layer: str = "L2",
                       **kwargs) -> List[Dict[str, Any]]:
-        vec_results = self.search_by_vector(query, top=top * 2, _touch=False, layer=layer)
+        vec_results = self.search_by_vector(query, top=top * 2, _touch=False, layer=layer, **kwargs)
         try:
-            kw_results = self.search_by_keyword(query, top=top * 2, _touch=False, layer=layer)
+            kw_results = self.search_by_keyword(query, top=top * 2, _touch=False, layer=layer, **kwargs)
         except sqlite3.OperationalError:
             # FTS5 MATCH is picky about punctuation/operators. Keep hybrid search usable
             # by falling back to vector-only results when the keyword query is invalid.
@@ -1873,6 +1952,16 @@ class SQLiteStore(AbstractGraphStore):
             task_type="skill_feedback",
             tags=["skill_feedback", rating, used_as],
             principle=f"Skill feedback: {outcome}",
+            context_tags=["skill_feedback", skill_id, outcome, used_as],
+            metadata={
+                "skill_id": skill_id,
+                "rating": rating,
+                "outcome": outcome,
+                "used_as": used_as,
+                "task_context": task_context,
+                "verification_result": verification_result,
+                "note": note,
+            },
         )
         relation, weight = self._skill_feedback_relation_and_weight(outcome)
         self.add_edge(skill_id, feedback_id, relation, weight=weight, source="skill_feedback")
@@ -2187,7 +2276,7 @@ class SQLiteStore(AbstractGraphStore):
         try:
             cur = conn.cursor()
             cur.execute("""
-                SELECT content, principle, decay_score, type, task_type
+                    SELECT content, principle, decay_score, type, task_type
                 FROM nodes WHERE tier = 'hot'
                 ORDER BY decay_score DESC LIMIT ?
             """, (limit,))
@@ -2202,12 +2291,12 @@ class SQLiteStore(AbstractGraphStore):
         try:
             cur = conn.cursor()
             sql = ("SELECT id, from_id, to_id, relation_type, weight, source, "
-                   "status, created_at FROM edges")
+                   "status, created_at, graph_dim, strength FROM edges")
             if where_clause:
                 sql += " WHERE " + where_clause
             cur.execute(sql, params)
             keys = ["id", "from_id", "to_id", "relation_type", "weight",
-                    "source", "status", "created_at"]
+                    "source", "status", "created_at", "graph_dim", "strength"]
             return [dict(zip(keys, row)) for row in cur.fetchall()]
         finally:
             conn.close()
@@ -2330,9 +2419,7 @@ class SQLiteStore(AbstractGraphStore):
             if not cur.fetchone():
                 return False
 
-            allowed = {"content", "principle", "confidence", "context_tags",
-                       "precondition", "predicted_outcome", "half_life_days",
-                       "tier", "decay_score", "base_score", "task_type", "project", "tags"}
+            allowed = NODE_UPDATE_FIELDS
             updates = {}
             for k, v in fields.items():
                 if k in allowed:
@@ -2341,16 +2428,27 @@ class SQLiteStore(AbstractGraphStore):
             if not updates:
                 return True
 
+            if "task_type" in updates:
+                updates["task_type"] = _normalize_task_type(updates["task_type"])
+                self._register_task_type(updates["task_type"])
+            updates = serialize_node_fields(updates)
             updates["updated_at"] = _now_iso()
             set_clause = ", ".join(f"{k}=?" for k in updates)
             values = list(updates.values()) + [node_id]
             conn.execute(f"UPDATE nodes SET {set_clause} WHERE id=?", values)
 
             if "content" in fields:
-                new_abstract = self._make_abstract(fields["content"], fields.get("principle"))
-                new_overview = self._make_overview(fields["content"], fields.get("principle"))
-                conn.execute("UPDATE nodes SET abstract=?, overview=? WHERE id=?",
-                             (new_abstract, new_overview, node_id))
+                cur.execute("SELECT principle FROM nodes WHERE id=?", (node_id,))
+                row = cur.fetchone()
+                principle = fields.get("principle") or (row[0] if row else None)
+                new_abstract = self._make_abstract(fields["content"], principle)
+                new_overview = self._make_overview(fields["content"], principle)
+                vec = self._embedder.encode(fields["content"])
+                vec_blob = vec.astype(np.float32).tobytes()
+                conn.execute("UPDATE nodes SET abstract=?, overview=?, vector=? WHERE id=?",
+                             (new_abstract, new_overview, vec_blob, node_id))
+                if self._vector_index is not None:
+                    self._vector_index.add(node_id, vec)
 
             if "precondition" in fields and fields["precondition"]:
                 vec = self._embedder.encode(fields["precondition"])
@@ -2543,6 +2641,8 @@ class SQLiteStore(AbstractGraphStore):
                 node = self.get_node(nid)
                 if not node:
                     continue
+                if not self._matches_node_filters(node.get("task_type"), node.get("project"), node.get("context_tags"), {"tags": tags, **kwargs}):
+                    continue
                 base = {"id": nid, "activation": round(act_score, 3), "tier": node.get("tier", "hot")}
                 if layer == "L0":
                     base["abstract"] = node.get("abstract") or node.get("content", "")[:150]
@@ -2555,6 +2655,8 @@ class SQLiteStore(AbstractGraphStore):
                     base["principle"] = node.get("principle")
                     base["confidence"] = node.get("confidence", 1.0)
                     base["decay_score"] = round(node.get("decay_score", 0), 3)
+                    base["task_type"] = node.get("task_type")
+                    base["project"] = node.get("project")
                 results.append(base)
 
             # Touch visited nodes
@@ -2567,6 +2669,53 @@ class SQLiteStore(AbstractGraphStore):
             conn.close()
 
     # ── 内部方��� ──────────────────────────────────────────
+
+    @staticmethod
+    def _matches_node_filters(task_type: Optional[str], project: Optional[str],
+                              context_tags, filters: Dict[str, Any]) -> bool:
+        filter_task_type = filters.get("task_type")
+        filter_project = filters.get("project")
+        filter_tags = filters.get("tags") or filters.get("context_tags")
+        if filter_task_type and task_type != filter_task_type:
+            return False
+        if filter_project and project != filter_project:
+            return False
+        if filter_tags:
+            wanted = {str(tag) for tag in parse_json_list(filter_tags)}
+            available = {str(tag) for tag in parse_json_list(context_tags)}
+            available.update(str(item) for item in (task_type, project) if item)
+            if not wanted.issubset(available):
+                return False
+        return True
+
+    @staticmethod
+    def _merge_node_fields(cur, node_id: str, task_type: Optional[str], project: Optional[str],
+                           tags_json: str, metadata_json: str, context_tags_json: str,
+                           precondition: Optional[str], predicted_outcome: Optional[str]):
+        cur.execute(
+            "SELECT task_type, project, tags, metadata, context_tags, precondition, predicted_outcome FROM nodes WHERE id=?",
+            (node_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return
+        old_task_type, old_project, old_tags, old_metadata, old_context_tags, old_precondition, old_predicted = row
+        cur.execute("""
+            UPDATE nodes
+            SET task_type=?, project=?, tags=?, metadata=?, context_tags=?,
+                precondition=?, predicted_outcome=?, updated_at=?
+            WHERE id=?
+        """, (
+            old_task_type or task_type,
+            old_project or project,
+            merge_json_lists(old_tags, tags_json),
+            merge_json_dicts(old_metadata, metadata_json),
+            merge_json_lists(old_context_tags, context_tags_json),
+            old_precondition or precondition,
+            old_predicted or predicted_outcome,
+            _now_iso(),
+            node_id,
+        ))
 
     @staticmethod
     def _default_graph_dim(relation_type: str) -> str:

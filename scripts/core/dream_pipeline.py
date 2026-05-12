@@ -17,6 +17,7 @@ import json
 import math
 import re
 import sqlite3
+import time
 import uuid
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -103,8 +104,10 @@ class DreamPhase(ABC):
 _DREAM_LOG_DB = Path(__file__).resolve().parent.parent.parent / "dream_log.db"
 
 
-def _init_dream_log():
-    conn = sqlite3.connect(str(_DREAM_LOG_DB))
+def _init_dream_log(db_path: Optional[Path] = None):
+    target = Path(db_path) if db_path else _DREAM_LOG_DB
+    target.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(target))
     conn.execute("""
         CREATE TABLE IF NOT EXISTS dreams (
             id TEXT PRIMARY KEY,
@@ -118,13 +121,108 @@ def _init_dream_log():
             phases TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS evolution_reports (
+            id TEXT PRIMARY KEY,
+            dream_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            status TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            report TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS telemetry_events (
+            id TEXT PRIMARY KEY,
+            dream_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            phase TEXT,
+            duration_ms REAL,
+            status TEXT,
+            payload TEXT
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_evolution_reports_created_at ON evolution_reports(created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_evolution_reports_dream_id ON evolution_reports(dream_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_events_created_at ON telemetry_events(created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_events_dream_id ON telemetry_events(dream_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_events_event_type ON telemetry_events(event_type)")
     conn.commit()
     conn.close()
 
 
+def _result_status(result: dict) -> str:
+    if not isinstance(result, dict):
+        return "PASS"
+    return result.get("status") or "PASS"
+
+
+def _build_evolution_report(dream_id: str, results: List[Dict[str, Any]], status: str,
+                            nodes_before: int, edges_before: int,
+                            nodes_after: int, edges_after: int,
+                            duration_ms: float) -> dict:
+    phase_summaries = []
+    highlights = []
+    warnings = []
+    for item in results:
+        result = item.get("result") if isinstance(item, dict) else {}
+        result = result if isinstance(result, dict) else {"raw": result}
+        name = item.get("name", "unknown")
+        added = int(result.get("added") or result.get("written") or result.get("distilled") or result.get("concepts_created") or 0)
+        updated = int(result.get("updated") or result.get("synced") or 0)
+        alerts = result.get("alerts") or []
+        phase_status = _result_status(result)
+        phase_summaries.append({
+            "phase": item.get("phase"),
+            "name": name,
+            "status": phase_status,
+            "added": added,
+            "updated": updated,
+            "alerts": alerts,
+            "duration_ms": item.get("duration_ms"),
+        })
+        if added or updated:
+            highlights.append(f"{name}: added={added}, updated={updated}")
+        if alerts:
+            warnings.extend(str(alert) for alert in alerts)
+        if phase_status in {"WARN", "ERROR", "FAIL"}:
+            warnings.append(f"{name}: {phase_status}")
+
+    summary = (
+        f"Dream {status}: nodes {nodes_before}->{nodes_after}, "
+        f"edges {edges_before}->{edges_after}, phases {len(results)}, "
+        f"duration {duration_ms:.0f}ms."
+    )
+    report = {
+        "dream_id": dream_id,
+        "status": status,
+        "summary": summary,
+        "node_delta": nodes_after - nodes_before,
+        "edge_delta": edges_after - edges_before,
+        "duration_ms": round(duration_ms, 2),
+        "highlights": highlights[:12],
+        "warnings": warnings[:12],
+        "phases": phase_summaries,
+        "next_actions": _next_actions_for_report(status, warnings, highlights),
+    }
+    return report
+
+
+def _next_actions_for_report(status: str, warnings: list, highlights: list) -> list:
+    if status == "FAIL":
+        return ["Open Dream Log and inspect failed phase errors before the next dream run."]
+    if warnings:
+        return ["Review warning phases and decide whether to adjust thresholds or source data."]
+    if not highlights:
+        return ["No graph changes were produced; check whether new raw memories or eligible edges exist."]
+    return ["Review new graph changes, then run graph_audit.py if this was a large consolidation."]
+
+
 class DreamPipeline:
-    def __init__(self):
+    def __init__(self, dream_log_db: Optional[Path] = None):
         self._phases: List[DreamPhase] = []
+        self._dream_log_db = Path(dream_log_db) if dream_log_db else _DREAM_LOG_DB
 
     def register(self, phase: DreamPhase) -> "DreamPipeline":
         self._phases.append(phase)
@@ -132,28 +230,50 @@ class DreamPipeline:
 
     def execute(self, store: AbstractGraphStore, embedder: AbstractEmbedder) -> List[Dict[str, Any]]:
         import sqlite3 as _sq
-        _init_dream_log()
+        _init_dream_log(self._dream_log_db)
+        dream_id = str(uuid.uuid4())
         started = _now_iso()
+        dream_started_perf = time.perf_counter()
         nodes_before = store.count_nodes()
         edges_before = store.count_edges()
 
         results = []
+        telemetry_events = []
         for i, phase in enumerate(self._phases, 1):
             print(f"[Phase {i}] {phase.name}")
+            phase_started_perf = time.perf_counter()
             try:
                 result = phase.run(store, embedder)
+                duration_ms = (time.perf_counter() - phase_started_perf) * 1000
                 print(f"  结果: {result}")
-                results.append({"phase": i, "name": phase.name, "result": result})
+                results.append({"phase": i, "name": phase.name, "result": result, "duration_ms": round(duration_ms, 2)})
+                telemetry_events.append({
+                    "event_type": "phase",
+                    "phase": phase.name,
+                    "duration_ms": duration_ms,
+                    "status": _result_status(result),
+                    "payload": result,
+                })
                 if isinstance(phase, SnapshotPhase):
                     for candidate in self._phases:
                         if isinstance(candidate, AuditPhase):
                             candidate.set_snapshot(result)
             except Exception as e:
+                duration_ms = (time.perf_counter() - phase_started_perf) * 1000
                 print(f"  错误: {e}")
-                results.append({"phase": i, "name": phase.name, "result": {"status": "ERROR", "error": str(e)}})
+                result = {"status": "ERROR", "error": str(e)}
+                results.append({"phase": i, "name": phase.name, "result": result, "duration_ms": round(duration_ms, 2)})
+                telemetry_events.append({
+                    "event_type": "phase",
+                    "phase": phase.name,
+                    "duration_ms": duration_ms,
+                    "status": "ERROR",
+                    "payload": result,
+                })
 
         nodes_after = store.count_nodes()
         edges_after = store.count_edges()
+        dream_duration_ms = (time.perf_counter() - dream_started_perf) * 1000
         final_status = "PASS"
         for r in results:
             res = r.get("result", {})
@@ -163,14 +283,44 @@ class DreamPipeline:
             if isinstance(res, dict) and res.get("status") == "WARN":
                 final_status = "WARN"
 
-        log_conn = _sq.connect(str(_DREAM_LOG_DB))
+        log_conn = _sq.connect(str(self._dream_log_db))
         try:
+            report = _build_evolution_report(
+                dream_id, results, final_status,
+                nodes_before, edges_before, nodes_after, edges_after,
+                dream_duration_ms,
+            )
             log_conn.execute(
                 "INSERT INTO dreams(id, started_at, finished_at, status, nodes_before, edges_before, nodes_after, edges_after, phases) VALUES (?,?,?,?,?,?,?,?,?)",
-                (str(uuid.uuid4()), started, _now_iso(), final_status,
+                (dream_id, started, _now_iso(), final_status,
                  nodes_before, edges_before, nodes_after, edges_after,
-                 json.dumps(results, ensure_ascii=False, default=str))
+                  json.dumps(results, ensure_ascii=False, default=str))
             )
+            log_conn.execute(
+                "INSERT INTO evolution_reports(id, dream_id, created_at, status, summary, report) VALUES (?,?,?,?,?,?)",
+                (str(uuid.uuid4()), dream_id, _now_iso(), final_status,
+                 report["summary"], json.dumps(report, ensure_ascii=False, default=str))
+            )
+            telemetry_events.append({
+                "event_type": "dream",
+                "phase": None,
+                "duration_ms": dream_duration_ms,
+                "status": final_status,
+                "payload": {
+                    "nodes_before": nodes_before,
+                    "edges_before": edges_before,
+                    "nodes_after": nodes_after,
+                    "edges_after": edges_after,
+                    "phase_count": len(results),
+                },
+            })
+            for event in telemetry_events:
+                log_conn.execute(
+                    "INSERT INTO telemetry_events(id, dream_id, created_at, event_type, phase, duration_ms, status, payload) VALUES (?,?,?,?,?,?,?,?)",
+                    (str(uuid.uuid4()), dream_id, _now_iso(), event["event_type"], event.get("phase"),
+                     round(float(event.get("duration_ms") or 0), 2), event.get("status"),
+                     json.dumps(event.get("payload") or {}, ensure_ascii=False, default=str))
+                )
             log_conn.commit()
         finally:
             log_conn.close()

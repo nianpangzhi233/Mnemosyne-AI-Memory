@@ -76,6 +76,48 @@ def _latest_dream():
         conn.close()
 
 
+def _latest_evolution_report():
+    if not DREAM_LOG_DB.exists():
+        return None
+    conn = sqlite3.connect(str(DREAM_LOG_DB))
+    try:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM evolution_reports ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        if not row:
+            return None
+        data = dict(row)
+        data["report"] = _safe_json(data.get("report"), {})
+        return data
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
+
+
+def _telemetry_summary():
+    if not DREAM_LOG_DB.exists():
+        return None
+    conn = sqlite3.connect(str(DREAM_LOG_DB))
+    try:
+        conn.row_factory = sqlite3.Row
+        latest = conn.execute(
+            "SELECT * FROM telemetry_events WHERE event_type='dream' ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        phases = None
+        if latest:
+            phases = conn.execute(
+                "SELECT COUNT(*) AS count, AVG(duration_ms) AS avg_ms FROM telemetry_events WHERE event_type='phase' AND dream_id=?",
+                (latest["dream_id"],),
+            ).fetchone()
+        return {"latest": dict(latest) if latest else None, "phases": dict(phases) if phases else {}}
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
+
+
 def _meta_value(key: str):
     conn = sqlite3.connect(str(Path(__file__).resolve().parent.parent.parent.parent / "graph.db"))
     try:
@@ -134,6 +176,8 @@ nodes = store.query_nodes()
 edges = store.query_edges("status='active'")
 skills = store.list_skill_artifacts() if hasattr(store, "list_skill_artifacts") else []
 latest_dream = _latest_dream()
+latest_report = _latest_evolution_report()
+telemetry_summary = _telemetry_summary()
 latest_skill_auto_loop_raw = _meta_value("last_skill_auto_loop")
 latest_skill_auto_loop = _safe_json(latest_skill_auto_loop_raw, {}) if latest_skill_auto_loop_raw else {}
 
@@ -284,6 +328,33 @@ with metric_cols[3]:
     _metric("技能", len(skills), f"默认可注入 {len(approved_skills)} 个")
 with metric_cols[4]:
     _metric("审计", len(audit_skills), "需要关注的技能", "color:#cc322b;" if audit_skills else "color:#1f8b4c;")
+
+if latest_report or telemetry_summary:
+    report = (latest_report or {}).get("report") or {}
+    latest_telemetry = (telemetry_summary or {}).get("latest") or {}
+    phase_telemetry = (telemetry_summary or {}).get("phases") or {}
+    warnings = report.get("warnings") or []
+    actions = report.get("next_actions") or []
+    st.markdown(
+        f"""
+        <div class="mn-panel" style="margin-top:12px; margin-bottom:0;">
+            <div class="mn-section-title">
+                <h2>最近一次学习报告</h2><span>EvolutionReport + Telemetry</span>
+            </div>
+            <div class="mn-row" style="align-items:flex-start; gap:24px; flex-wrap:wrap;">
+                <div><strong>状态</strong><br>{_html(str(report.get('status') or latest_telemetry.get('status') or 'unknown'))}</div>
+                <div><strong>节点变化</strong><br>{report.get('node_delta', 0)}</div>
+                <div><strong>边变化</strong><br>{report.get('edge_delta', 0)}</div>
+                <div><strong>耗时</strong><br>{float(report.get('duration_ms') or latest_telemetry.get('duration_ms') or 0):.0f} ms</div>
+                <div><strong>阶段均耗时</strong><br>{float(phase_telemetry.get('avg_ms') or 0):.0f} ms</div>
+                <div><strong>提醒</strong><br>{len(warnings)}</div>
+            </div>
+            <div style="margin-top:12px; color:#424245;">{_html(str(report.get('summary') or '暂无学习报告摘要'))}</div>
+            {f'<div style="margin-top:10px; color:#c96a00;">下一步：{_html(str(actions[0]))}</div>' if actions else ''}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 if latest_skill_auto_loop:
     evolved_items = latest_skill_auto_loop.get("evolved") or []

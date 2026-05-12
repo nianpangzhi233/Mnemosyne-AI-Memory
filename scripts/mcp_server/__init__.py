@@ -23,6 +23,7 @@ fix_windows_encoding()
 ensure_hf_offline()
 
 from core import SQLiteStore, HarrierEmbedder
+from core.contracts import deserialize_node, serialize_node_fields
 
 _store = None
 
@@ -124,9 +125,13 @@ def _tools_list():
                     "task_type": {
                         "type": "string",
                         "description": task_type_desc
+                    },
+                    "metadata": {
+                        "type": "object",
+                        "description": "Structured metadata such as outcome, problem, solution, root_cause, entities, evidence"
                     }
                 },
-                "required": ["content"]
+                "required": ["content", "task_type"]
             }
         },
         {
@@ -208,7 +213,17 @@ def _tools_list():
                     "content": {"type": "string", "description": "New content (optional)"},
                     "confidence": {"type": "number", "description": "New confidence 0-1.5 (optional)"},
                     "context_tags": {"type": "array", "items": {"type": "string"}, "description": "New tags (optional)"},
-                    "principle": {"type": "string", "description": "New principle (optional)"}
+                    "principle": {"type": "string", "description": "New principle (optional)"},
+                    "task_type": {"type": "string", "description": "New task category (optional)"},
+                    "project": {"type": "string", "description": "New project (optional)"},
+                    "tags": {"type": "array", "items": {"type": "string"}, "description": "New node tags (optional)"},
+                    "metadata": {"type": "object", "description": "New or replacement structured metadata (optional)"},
+                    "precondition": {"type": "string", "description": "New precondition (optional)"},
+                    "predicted_outcome": {"type": "string", "description": "New predicted outcome (optional)"},
+                    "half_life_days": {"type": "number", "description": "Memory half-life in days (optional)"},
+                    "tier": {"type": "string", "description": "Memory tier (optional)"},
+                    "decay_score": {"type": "number", "description": "Decay score (optional)"},
+                    "base_score": {"type": "number", "description": "Base score (optional)"}
                 },
                 "required": ["id"]
             }
@@ -304,7 +319,7 @@ def _tools_list():
                     "expected": {"type": "string"},
                     "prompt_tags": {"type": "array", "items": {"type": "string"}}
                 },
-                "required": ["skill_id"]
+                "required": ["skill_id", "outcome"]
             }
         },
         {
@@ -333,12 +348,13 @@ def _handle_write(args):
     predicted_outcome = args.get("predicted_outcome")
     context_tags = args.get("context_tags")
     task_type = args.get("task_type")
+    metadata = args.get("metadata", {})
 
     node_id = store.add_node(
         content=content, node_type=node_type,
         principle=principle, project=project, tags=tags,
         precondition=precondition, predicted_outcome=predicted_outcome,
-        context_tags=context_tags, task_type=task_type,
+        context_tags=context_tags, task_type=task_type, metadata=metadata,
     )
 
     contradicts_id = args.get("contradicts")
@@ -361,11 +377,14 @@ def _handle_search(args):
     if mode in ("precise", "creative"):
         results = store.search_spreading(query, mode=mode, graph_dims=[graph_dim] if graph_dim else None, tags=tags, top=top, layer=layer)
     elif mode == "vector":
-        results = store.search_by_vector(query, top=top, layer=layer)
+        results = store.search_by_vector(query, top=top, layer=layer, tags=tags)
     elif mode == "keyword":
-        results = store.search_by_keyword(query, top=top, layer=layer)
+        try:
+            results = store.search_by_keyword(query, top=top, layer=layer, tags=tags)
+        except Exception:
+            results = []
     else:
-        results = store.search_hybrid(query, top=top, layer=layer)
+        results = store.search_hybrid(query, top=top, layer=layer, tags=tags)
 
     return _clean_surrogates(json.dumps(results, ensure_ascii=False, indent=2))
 
@@ -397,15 +416,7 @@ def _handle_detail(args):
     for nid in ids:
         node = store.get_node(nid)
         if node:
-            results.append({
-                "id": node["id"],
-                "content": node.get("content", ""),
-                "principle": node.get("principle"),
-                "tier": node.get("tier"),
-                "decay_score": node.get("decay_score"),
-                "project": node.get("project"),
-                "task_type": node.get("task_type"),
-            })
+            results.append(deserialize_node(node))
     return _clean_surrogates(json.dumps(results, ensure_ascii=False, indent=2))
 
 
@@ -413,14 +424,14 @@ def _handle_update(args):
     store = _get_store()
     node_id = args["id"]
     fields = {}
-    if "content" in args:
-        fields["content"] = args["content"]
-    if "confidence" in args:
-        fields["confidence"] = args["confidence"]
-    if "context_tags" in args:
-        fields["context_tags"] = json.dumps(args["context_tags"], ensure_ascii=False)
-    if "principle" in args:
-        fields["principle"] = args["principle"]
+    for key in (
+        "content", "confidence", "context_tags", "principle", "task_type", "project",
+        "tags", "metadata", "precondition", "predicted_outcome", "half_life_days",
+        "tier", "decay_score", "base_score",
+    ):
+        if key in args:
+            fields[key] = args[key]
+    fields = serialize_node_fields(fields)
     ok = store.update_node(node_id, **fields)
     return f"Updated {node_id[:8]}..." if ok else f"Node {node_id[:8]} not found"
 

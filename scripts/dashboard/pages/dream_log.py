@@ -175,7 +175,31 @@ def get_dream_logs():
         conn.close()
     return logs
 
+
+def get_latest_report():
+    if not log_db_path.exists():
+        return None
+    conn = sqlite3.connect(str(log_db_path))
+    try:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM evolution_reports ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        if not row:
+            return None
+        data = dict(row)
+        try:
+            data["report"] = json.loads(data.get("report") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            data["report"] = {}
+        return data
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
+
 logs = get_dream_logs()
+latest_report = get_latest_report()
 
 top_cols = st.columns([1, 1, 2])
 with top_cols[0]:
@@ -202,6 +226,26 @@ if not logs:
     with col3:
         st.metric(T["total_nodes"], store.count_nodes())
     st.stop()
+
+if latest_report:
+    report = latest_report.get("report") or {}
+    warnings = report.get("warnings") or []
+    highlights = report.get("highlights") or []
+    with st.expander("最近一次学习报告", expanded=False):
+        st.write(report.get("summary") or latest_report.get("summary"))
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("状态", report.get("status", "unknown"))
+        c2.metric("节点变化", report.get("node_delta", 0))
+        c3.metric("边变化", report.get("edge_delta", 0))
+        c4.metric("耗时 ms", int(report.get("duration_ms") or 0))
+        if highlights:
+            st.markdown("**Highlights**")
+            for item in highlights[:6]:
+                st.caption(item)
+        if warnings:
+            st.markdown("**Warnings**")
+            for item in warnings[:6]:
+                st.warning(item)
 
 for log in logs:
     started = log.get("started_at", "")[:19].replace("T", " ")
