@@ -279,6 +279,7 @@ Skill Memory tools: `memory_crystallize`, `memory_skill_search`, `memory_skill_i
 
 ```bash
 python scripts/api/start_api.py --port 8979
+# Windows shortcut: start-api.cmd
 # Swagger docs: http://localhost:8979/docs
 
 curl http://localhost:8979/api/health
@@ -315,7 +316,8 @@ skill-daemon.cmd
 ## Dashboard
 
 ```bash
-streamlit run scripts/dashboard/app.py --server.port 8501
+streamlit run scripts/dashboard/app.py --server.port 8501 --server.headless=true --browser.gatherUsageStats=false
+# Windows shortcut: start-dashboard.cmd
 ```
 
 | Page | Features |
