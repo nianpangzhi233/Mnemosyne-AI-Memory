@@ -29,6 +29,7 @@ import numpy as np
 
 from .graph_store import AbstractGraphStore
 from .embedder import AbstractEmbedder
+from .runners import OpenAICompatibleAgentRunner, OpenAICompatibleClient, OpenAICompatibleJudgeRunner, ReplayAgentRunner, ReplayJudgeRunner
 
 TYPE_WEIGHTS = {
     "experience": 1.0, "principle": 1.3, "strategy": 1.0,
@@ -1276,6 +1277,248 @@ class SkillDevelopmentPhase(DreamPhase):
         return any(keyword in text for keyword in _SENSITIVE_KEYWORDS)
 
 
+class SkillTestPromptGenerationPhase(DreamPhase):
+    """Generate grounded active test prompts for skills using LLM."""
+
+    MAX_SKILLS_PER_RUN = 3
+    MAX_PROMPTS_PER_SKILL = 3
+
+    @property
+    def name(self) -> str:
+        return "技能测试题候选生成 SkillTestPromptGenerationPhase"
+
+    def run(self, store: AbstractGraphStore, embedder: AbstractEmbedder) -> dict:
+        required = ["list_skill_artifacts", "list_real_skill_test_prompts", "add_skill_test_prompt", "sync_skill_test_prompts_file"]
+        if not all(hasattr(store, attr) for attr in required):
+            return {"generated": 0, "skills": 0, "errors": [], "skipped": "skill test prompt API unavailable"}
+
+        try:
+            import sys
+            scripts_dir = Path(__file__).resolve().parent.parent
+            if str(scripts_dir) not in sys.path:
+                sys.path.insert(0, str(scripts_dir))
+            from llm_judge import load_config, _call_llm, _extract_json
+        except Exception as exc:
+            return {"generated": 0, "skills": 0, "errors": [str(exc)], "skipped": "LLM helpers unavailable"}
+
+        config = load_config()
+        if not config.get("enabled"):
+            return {"generated": 0, "skills": 0, "errors": [], "skipped": "LLM disabled"}
+
+        candidates = []
+        for artifact in store.list_skill_artifacts(statuses=["draft", "tested", "needs_revision"]):
+            if store.list_real_skill_test_prompts(artifact["node_id"]):
+                continue
+            candidates.append(artifact)
+
+        generated = []
+        errors = []
+        for artifact in candidates[:self.MAX_SKILLS_PER_RUN]:
+            source_nodes = self._source_nodes(store, artifact)
+            system, user = self._build_prompt(artifact, source_nodes)
+            result = _call_llm(
+                config["endpoint"], config["model"], system, user,
+                timeout=config.get("timeout", 120),
+            )
+            if not result:
+                errors.append({"skill_id": artifact["node_id"], "error": "empty LLM result"})
+                continue
+            try:
+                parsed = _extract_json(result)
+            except Exception as exc:
+                errors.append({"skill_id": artifact["node_id"], "error": f"invalid JSON: {exc}"})
+                continue
+
+            prompts, error = self._validate_prompts(parsed, artifact.get("source_node_ids") or [])
+            if error:
+                errors.append({"skill_id": artifact["node_id"], "error": error})
+                continue
+            for idx, item in enumerate(prompts[:self.MAX_PROMPTS_PER_SKILL], start=1):
+                prompt_id = f"llm-candidate-{idx}"
+                store.add_skill_test_prompt(
+                    artifact["node_id"],
+                    prompt_id,
+                    item["prompt"],
+                    expected=item["expected"],
+                    tags=["llm_generated", "grounded", "auto_full_test"] + item.get("risk_tags", []),
+                    status="active",
+                    metadata={
+                        "grounding_node_ids": item.get("grounding_node_ids", []),
+                        "baseline_expected_failure": item.get("baseline_expected_failure"),
+                        "with_skill_expected_improvement": item.get("with_skill_expected_improvement"),
+                        "generated_by": "SkillTestPromptGenerationPhase",
+                    },
+                )
+                generated.append({"skill_id": artifact["node_id"], "prompt_id": prompt_id, "grounding_node_ids": item.get("grounding_node_ids", [])})
+            metadata = artifact.get("metadata") or {}
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except Exception:
+                    metadata = {}
+            metadata["needs_real_darwin_test"] = True
+            metadata["last_prompt_generation_at"] = _now_iso()
+            metadata["generated_prompt_ids"] = [item["prompt_id"] for item in generated if item["skill_id"] == artifact["node_id"]]
+            store.update_skill_artifact(artifact["node_id"], metadata=metadata)
+            store.sync_skill_test_prompts_file(artifact["node_id"])
+
+        return {"generated": len(generated), "skills": len({item["skill_id"] for item in generated}), "prompts": generated, "errors": errors}
+
+    @staticmethod
+    def _source_nodes(store, artifact: dict) -> List[dict]:
+        nodes = []
+        if not hasattr(store, "get_node"):
+            return nodes
+        for node_id in artifact.get("source_node_ids") or []:
+            node = store.get_node(node_id)
+            if node:
+                nodes.append({
+                    "id": node.get("id"),
+                    "content": (node.get("content") or "")[:800],
+                    "principle": node.get("principle"),
+                    "task_type": node.get("task_type"),
+                    "tags": node.get("tags"),
+                })
+        return nodes
+
+    @staticmethod
+    def _build_prompt(artifact: dict, source_nodes: List[dict] = None) -> tuple:
+        system = (
+            "You generate grounded Darwin full-test prompts for Mnemosyne skills.\n"
+            "A good prompt must expose a likely baseline failure and a clear with-skill improvement.\n"
+            "Every prompt must be grounded in the supplied source memories and must cite grounding_node_ids.\n"
+            "Return EXACTLY one JSON object and nothing else."
+        )
+        user = (
+            "Skill artifact:\n"
+            f"{json.dumps(artifact, ensure_ascii=False, indent=2, default=str)}\n\n"
+            "Source memories grounding the skill:\n"
+            f"{json.dumps(source_nodes or [], ensure_ascii=False, indent=2, default=str)}\n\n"
+            "Generate 2-3 executable test prompts. Return EXACTLY this JSON schema:\n"
+            "{\n"
+            '  "prompts": [\n'
+            "    {\n"
+            '      "prompt": "specific user task that tests the skill",\n'
+            '      "expected": "observable criteria for a correct answer",\n'
+            '      "baseline_expected_failure": "what a normal answer is likely to miss",\n'
+            '      "with_skill_expected_improvement": "what using the skill should improve",\n'
+            '      "grounding_node_ids": ["source node id used to create this test"],\n'
+            '      "risk_tags": ["short tag"]\n'
+            "    }\n"
+            "  ]\n"
+            "}"
+        )
+        return system, user
+
+    @classmethod
+    def _validate_prompts(cls, parsed: dict, source_node_ids: List[str] = None) -> tuple:
+        if not isinstance(parsed, dict) or not isinstance(parsed.get("prompts"), list):
+            return None, "missing prompts array"
+        source_node_ids = [str(node_id) for node_id in (source_node_ids or [])]
+        cleaned = []
+        for item in parsed.get("prompts") or []:
+            if not isinstance(item, dict):
+                continue
+            prompt = str(item.get("prompt") or "").strip()
+            expected = str(item.get("expected") or "").strip()
+            baseline_fail = str(item.get("baseline_expected_failure") or "").strip()
+            improvement = str(item.get("with_skill_expected_improvement") or "").strip()
+            grounding_ids = [str(node_id).strip() for node_id in (item.get("grounding_node_ids") or []) if str(node_id).strip()]
+            if not prompt or not expected or not baseline_fail or not improvement:
+                continue
+            if source_node_ids and not set(grounding_ids).intersection(source_node_ids):
+                continue
+            if "use the skill" in prompt.lower() and "matching task" in prompt.lower():
+                continue
+            payload = {"prompt": prompt, "expected": expected, "baseline_expected_failure": baseline_fail, "with_skill_expected_improvement": improvement}
+            if SkillDevelopmentPhase._contains_sensitive(payload):
+                continue
+            risk_tags = item.get("risk_tags") if isinstance(item.get("risk_tags"), list) else []
+            payload["risk_tags"] = [str(tag).strip()[:40] for tag in risk_tags if str(tag).strip()][:5]
+            payload["grounding_node_ids"] = grounding_ids[:5]
+            cleaned.append(payload)
+        if not cleaned:
+            return None, "no valid candidate prompts"
+        return cleaned, None
+
+
+def _make_skill_live_runners(config: dict):
+    if config.get("enabled") and config.get("endpoint") and config.get("model"):
+        client = OpenAICompatibleClient(
+            config["endpoint"],
+            config["model"],
+            api_key=config.get("api_key"),
+            timeout=config.get("timeout", 120),
+        )
+        return OpenAICompatibleAgentRunner(client), OpenAICompatibleJudgeRunner(client), "llm"
+    return None, None, None
+
+
+class SkillLiveEvolutionPhase(DreamPhase):
+    """Run live full-test evolution immediately after grounded prompt generation."""
+
+    MAX_SKILLS_PER_RUN = 3
+
+    @property
+    def name(self) -> str:
+        return "技能实时进化 SkillLiveEvolutionPhase"
+
+    def run(self, store: AbstractGraphStore, embedder: AbstractEmbedder) -> dict:
+        required = ["list_skill_artifacts", "list_real_skill_test_prompts", "run_skill_darwin_evaluation", "update_skill_artifact"]
+        if not all(hasattr(store, attr) for attr in required):
+            return {"evaluated": 0, "evolved": 0, "needs_revision": 0, "errors": [], "skipped": "skill live evolution API unavailable"}
+
+        try:
+            import sys
+            scripts_dir = Path(__file__).resolve().parent.parent
+            if str(scripts_dir) not in sys.path:
+                sys.path.insert(0, str(scripts_dir))
+            from llm_judge import load_config
+        except Exception as exc:
+            return {"evaluated": 0, "evolved": 0, "needs_revision": 0, "errors": [str(exc)], "skipped": "LLM helpers unavailable"}
+
+        config = load_config()
+        agent_runner, judge_runner, runner_mode = _make_skill_live_runners(config)
+        if not agent_runner or not judge_runner or runner_mode != "llm":
+            return {"evaluated": 0, "evolved": 0, "needs_revision": 0, "errors": [], "skipped": "LLM live runners unavailable"}
+
+        candidates = []
+        for artifact in store.list_skill_artifacts(statuses=["draft", "tested", "needs_revision"]):
+            metadata = artifact.get("metadata") or {}
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except Exception:
+                    metadata = {}
+            if metadata.get("needs_real_darwin_test") and store.list_real_skill_test_prompts(artifact["node_id"]):
+                candidates.append(artifact)
+
+        evaluated = []
+        errors = []
+        for artifact in candidates[:self.MAX_SKILLS_PER_RUN]:
+            skill_id = artifact["node_id"]
+            try:
+                result = store.run_skill_darwin_evaluation(skill_id, agent_runner, judge_runner, round_no=1, eval_mode="full_test")
+                refreshed = store.get_skill_artifact(skill_id)
+                metadata = refreshed.get("metadata") or {}
+                if isinstance(metadata, str):
+                    try:
+                        metadata = json.loads(metadata)
+                    except Exception:
+                        metadata = {}
+                metadata["needs_real_darwin_test"] = False
+                metadata["last_full_test_at"] = _now_iso()
+                metadata["last_full_test_decision"] = result.get("decision", {}).get("decision")
+                store.update_skill_artifact(skill_id, metadata=metadata)
+                evaluated.append({"skill_id": skill_id, "decision": result.get("decision", {}).get("decision"), "eval_mode": result.get("darwin", {}).get("eval_mode")})
+            except Exception as exc:
+                errors.append({"skill_id": skill_id, "error": str(exc)})
+
+        evolved = sum(1 for item in evaluated if item.get("decision") == "evolved")
+        needs_revision = sum(1 for item in evaluated if item.get("decision") == "needs_revision")
+        return {"evaluated": len(evaluated), "evolved": evolved, "needs_revision": needs_revision, "evaluated_skills": evaluated, "errors": errors}
+
+
 class SkillMirrorEvolutionPhase(DreamPhase):
     """Mirror skills and record dry-run scores without promoting to evolved.
 
@@ -1310,13 +1553,18 @@ class SkillMirrorEvolutionPhase(DreamPhase):
                 status = "format_checked"
                 blocked_promotions.append(refreshed["node_id"])
 
+            metadata = refreshed.get("metadata") or {}
+            metadata["latest_format_check"] = {
+                "mnemosyne_score": score["mnemosyne_score"],
+                "darwin_score": score["darwin_score"],
+                "final_score": score["final_score"],
+                "checked_at": _now_iso(),
+            }
             store.update_skill_artifact(
                 refreshed["node_id"],
                 status=new_status,
                 review_status=new_status,
-                mnemosyne_score=score["mnemosyne_score"],
-                darwin_score=score["darwin_score"],
-                final_score=score["final_score"],
+                metadata=metadata,
             )
             sync_info = store.sync_skill_file(refreshed["node_id"])
             run_id = store.record_skill_evolution_run(
@@ -1770,11 +2018,11 @@ class DistillPhase(DreamPhase):
 
 
 _FAST_PHASES = [SnapshotPhase, SimilarToPhase]
-_SLOW_PHASES = [LogScanPhase, DistillPhase, CausalPhase, ConceptPhase, TransfersPhase, ContradictsPhase, SkillEmbryoPhase, SkillDevelopmentPhase, SkillMirrorEvolutionPhase, StrategyPhase, CovenantPhase, DecayPhase, SyncPhase, LLMReviewPhase]
+_SLOW_PHASES = [LogScanPhase, DistillPhase, CausalPhase, ConceptPhase, TransfersPhase, ContradictsPhase, SkillEmbryoPhase, SkillDevelopmentPhase, SkillTestPromptGenerationPhase, SkillLiveEvolutionPhase, SkillMirrorEvolutionPhase, StrategyPhase, CovenantPhase, DecayPhase, SyncPhase, LLMReviewPhase]
 
 # Keep old name for backward compatibility
 _ALL_PHASES = [SnapshotPhase, LogScanPhase, SimilarToPhase, CausalPhase, ContradictsPhase, ConceptPhase, TransfersPhase,
-               SkillEmbryoPhase, SkillDevelopmentPhase, SkillMirrorEvolutionPhase, StrategyPhase, CovenantPhase, DecayPhase, LLMReviewPhase, DistillPhase, SyncPhase, AuditPhase]
+               SkillEmbryoPhase, SkillDevelopmentPhase, SkillTestPromptGenerationPhase, SkillLiveEvolutionPhase, SkillMirrorEvolutionPhase, StrategyPhase, CovenantPhase, DecayPhase, LLMReviewPhase, DistillPhase, SyncPhase, AuditPhase]
 
 
 def run_dream(store: AbstractGraphStore, embedder: AbstractEmbedder,

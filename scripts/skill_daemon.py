@@ -150,13 +150,40 @@ def _promotion_gate(store: SQLiteStore, artifact: dict) -> dict:
     if not stable:
         return {"decision": "not_stable"}
     if refreshed.get("risk_level") != "low":
-        store.update_skill_artifact(refreshed["node_id"], review_status="pending_manual_approval")
-        return {"decision": "pending_manual_approval", "risk_level": refreshed.get("risk_level")}
+        metadata = refreshed.get("metadata") or {}
+        metadata["approval_gate_required"] = True
+        store.update_skill_artifact(
+            refreshed["node_id"],
+            review_status="approval_gate_required",
+            inject_enabled=0,
+            trial_enabled=1,
+            requires_feedback=1,
+            metadata=metadata,
+        )
+        return {"decision": "approval_gate_required", "risk_level": refreshed.get("risk_level")}
     try:
         return {"decision": "auto_approved", "result": store.approve_skill(refreshed["node_id"], approval_mode="auto_strict")}
     except Exception as exc:
         store.update_skill_artifact(refreshed["node_id"], review_status="auto_approval_blocked", latest_decision_reason=str(exc))
         return {"decision": "auto_approval_blocked", "error": str(exc)}
+
+
+def _should_requeue_needs_revision(store: SQLiteStore, artifact: dict) -> bool:
+    if artifact.get("latest_eval_mode") is None:
+        return True
+    real_prompts = store.list_real_skill_test_prompts(artifact["node_id"])
+    if not real_prompts:
+        return False
+    runs = store.list_skill_eval_runs(artifact["node_id"])
+    last_eval_at = max((run.get("created_at") or "" for run in runs), default="")
+    updated_at = artifact.get("updated_at") or ""
+    metadata = artifact.get("metadata") or {}
+    if metadata.get("needs_real_darwin_test"):
+        return True
+    if updated_at and last_eval_at and updated_at > last_eval_at:
+        return True
+    latest_prompt_at = max((prompt.get("updated_at") or prompt.get("created_at") or "" for prompt in real_prompts), default="")
+    return bool(latest_prompt_at and last_eval_at and latest_prompt_at > last_eval_at)
 
 
 def run_skill_auto_loop_once() -> dict:
@@ -170,9 +197,7 @@ def run_skill_auto_loop_once() -> dict:
         for artifact in store.list_skill_artifacts(statuses=["embryo", "draft", "tested", "evolved", "needs_revision"]):
             status = artifact.get("status")
             never_evaluated = artifact.get("latest_eval_mode") is None
-            if status == "needs_revision" and not never_evaluated:
-                # Needs-revision skills should not permanently block fresh drafts.
-                # Re-run them only after a human or later repair pass changes state.
+            if status == "needs_revision" and not _should_requeue_needs_revision(store, artifact):
                 continue
             artifact["_auto_priority"] = (priority.get(status, 9), 0 if never_evaluated else 1, artifact.get("updated_at") or "")
             candidates.append(artifact)
@@ -187,6 +212,10 @@ def run_skill_auto_loop_once() -> dict:
             try:
                 if artifact.get("status") in {"draft", "tested", "needs_revision"}:
                     _ensure_smoke_prompt(store, artifact)
+                    real_prompts = store.list_real_skill_test_prompts(skill_id)
+                    if runner_mode == "llm" and not real_prompts:
+                        errors.append({"skill_id": skill_id, "skipped": "no_real_test_prompts"})
+                        continue
                     for round_no in range(1, AUTO_EVOLUTION_ROUNDS + 1):
                         result = store.run_skill_darwin_evaluation(
                             skill_id,

@@ -14,9 +14,10 @@ if str(SCRIPTS) not in sys.path:
 from graph_init import init_db
 import core.sqlite_store as sqlite_store_module
 from core.sqlite_store import SQLiteStore
-from core.dream_pipeline import SkillMirrorEvolutionPhase
+from core.dream_pipeline import SkillLiveEvolutionPhase, SkillMirrorEvolutionPhase, SkillTestPromptGenerationPhase
 from core.skill_evolution import SkillEvolutionRunner
 from core.runners import ReplayAgentRunner, ReplayJudgeRunner
+import skill_daemon
 
 
 class DummyEmbedder:
@@ -120,6 +121,13 @@ class BilateralSkillEvolutionTest(unittest.TestCase):
 
     def test_dry_run_mirror_does_not_promote_draft_to_evolved(self):
         skill_id, _ = self._draft_skill(status="draft")
+        self.store.update_skill_artifact(
+            skill_id,
+            latest_darwin_score=91,
+            latest_mnemosyne_score=88,
+            latest_live_test_delta=22,
+            latest_eval_mode="full_test",
+        )
 
         try:
             result = SkillMirrorEvolutionPhase().run(self.store, DummyEmbedder())
@@ -127,7 +135,9 @@ class BilateralSkillEvolutionTest(unittest.TestCase):
             artifact = self.store.get_skill_artifact(skill_id)
             self.assertEqual(artifact["status"], "draft")
             self.assertEqual(result["evolved"], 0)
-            self.assertNotEqual(artifact.get("latest_eval_mode"), "full_test")
+            self.assertEqual(artifact.get("latest_eval_mode"), "full_test")
+            self.assertEqual(artifact.get("latest_darwin_score"), 91)
+            self.assertIn("latest_format_check", artifact.get("metadata") or {})
         finally:
             artifact = self.store.get_skill_artifact(skill_id)
             file_path = artifact.get("file_path") if artifact else None
@@ -163,6 +173,12 @@ class BilateralSkillEvolutionTest(unittest.TestCase):
 
     def test_bilateral_decision_requires_mnemosyne_pass(self):
         skill_id, _ = self._draft_skill(status="tested", source_count=1)
+        self.store.add_skill_test_prompt(
+            skill_id,
+            "gzip-json-1",
+            "A Node.js proxy receives garbled bytes before JSON.parse. What should it check?",
+            "Check Content-Encoding and gunzip before parsing JSON.",
+        )
 
         decision = self.store.decide_skill_evolution(
             skill_id,
@@ -172,6 +188,7 @@ class BilateralSkillEvolutionTest(unittest.TestCase):
                 "live_test_delta": 2,
                 "regression_count": 0,
                 "eval_mode": "full_test",
+                "prompt_results": [{"prompt_id": "gzip-json-1"}],
             },
         )
 
@@ -182,6 +199,12 @@ class BilateralSkillEvolutionTest(unittest.TestCase):
     def test_bilateral_decision_promotes_only_when_both_sides_pass(self):
         skill_id, _ = self._draft_skill(status="tested")
         self._add_verification_edges(skill_id, count=3)
+        self.store.add_skill_test_prompt(
+            skill_id,
+            "gzip-json-1",
+            "A Node.js proxy receives garbled bytes before JSON.parse. What should it check?",
+            "Check Content-Encoding and gunzip before parsing JSON.",
+        )
         mnemosyne = self.store.score_skill_mnemosyne(skill_id)
 
         decision = self.store.decide_skill_evolution(
@@ -192,6 +215,7 @@ class BilateralSkillEvolutionTest(unittest.TestCase):
                 "live_test_delta": 2,
                 "regression_count": 0,
                 "eval_mode": "full_test",
+                "prompt_results": [{"prompt_id": "gzip-json-1"}],
             },
             mnemosyne_result=mnemosyne,
         )
@@ -204,6 +228,12 @@ class BilateralSkillEvolutionTest(unittest.TestCase):
     def test_failed_bilateral_decision_downgrades_existing_evolved_skill(self):
         skill_id, _ = self._draft_skill(status="evolved")
         self._add_verification_edges(skill_id, count=3)
+        self.store.add_skill_test_prompt(
+            skill_id,
+            "gzip-json-1",
+            "A Node.js proxy receives garbled bytes before JSON.parse. What should it check?",
+            "Check Content-Encoding and gunzip before parsing JSON.",
+        )
 
         decision = self.store.decide_skill_evolution(
             skill_id,
@@ -213,6 +243,7 @@ class BilateralSkillEvolutionTest(unittest.TestCase):
                 "live_test_delta": -1,
                 "regression_count": 1,
                 "eval_mode": "full_test",
+                "prompt_results": [{"prompt_id": "gzip-json-1"}],
             },
         )
 
@@ -249,6 +280,226 @@ class BilateralSkillEvolutionTest(unittest.TestCase):
         self.assertEqual(runs[0]["decision"], "evolved")
         self.assertEqual(runs[0]["kept"], 1)
         self.assertEqual(self.store.get_skill_artifact(skill_id)["status"], "evolved")
+
+    def test_full_test_rejects_auto_smoke_only_prompt(self):
+        skill_id, _ = self._draft_skill(status="tested")
+        self._add_verification_edges(skill_id, count=3)
+        self.store.add_skill_test_prompt(
+            skill_id,
+            "auto-smoke",
+            "Use the skill Test isolated gzip body before JSON parse on a matching task.",
+            "Request body parses after gzip decompression.",
+            tags=["auto", "smoke"],
+        )
+
+        with self.assertRaisesRegex(ValueError, "real active test prompt"):
+            self.store.run_skill_darwin_evaluation(skill_id, DummyRunner(), DummyJudge(), eval_mode="full_test")
+
+    def test_replay_smoke_cannot_update_real_governance_scores(self):
+        skill_id, _ = self._draft_skill(status="tested")
+        self._add_verification_edges(skill_id, count=3)
+        self.store.add_skill_test_prompt(
+            skill_id,
+            "auto-smoke",
+            "Use the skill Test isolated gzip body before JSON parse on a matching task.",
+            "Request body parses after gzip decompression.",
+            tags=["auto", "smoke"],
+        )
+
+        result = self.store.run_skill_darwin_evaluation(
+            skill_id,
+            DummyRunner(),
+            DummyJudge(),
+            eval_mode="replay_smoke",
+        )
+        artifact = self.store.get_skill_artifact(skill_id)
+
+        self.assertEqual(result["decision"]["decision"], "needs_revision")
+        self.assertFalse(result["darwin"]["passed"])
+        self.assertIn("replay_smoke_cannot_evolve", result["decision"]["decision_reason"])
+        self.assertEqual(artifact.get("status"), "tested")
+        self.assertEqual(artifact.get("review_status"), "tested")
+        self.assertIsNone(artifact.get("latest_darwin_score"))
+        self.assertIsNone(artifact.get("latest_live_test_delta"))
+        self.assertEqual(artifact.get("metadata", {}).get("latest_non_governing_eval", {}).get("eval_mode"), "replay_smoke")
+
+    def test_grounded_llm_prompt_is_real_evidence_after_hard_validation(self):
+        skill_id, _ = self._draft_skill(status="tested")
+        self.store.add_skill_test_prompt(
+            skill_id,
+            "llm-candidate-1",
+            "A proxy receives gzip bytes but JSON.parse sees mojibake. Diagnose the fix.",
+            "Answer checks Content-Encoding and gunzips before JSON.parse.",
+            tags=["llm_generated", "grounded", "auto_full_test"],
+            status="active",
+            metadata={"grounding_node_ids": ["source-1"]},
+        )
+
+        prompts = self.store.list_real_skill_test_prompts(skill_id)
+        self.assertEqual(prompts[0]["prompt_id"], "llm-candidate-1")
+        self.assertEqual(prompts[0]["metadata"]["grounding_node_ids"], ["source-1"])
+
+    def test_llm_generated_prompt_without_grounding_is_not_real_evidence(self):
+        skill_id, _ = self._draft_skill(status="tested")
+        self.store.add_skill_test_prompt(
+            skill_id,
+            "llm-candidate-1",
+            "A proxy receives gzip bytes but JSON.parse sees mojibake. Diagnose the fix.",
+            "Answer checks Content-Encoding and gunzips before JSON.parse.",
+            tags=["llm_generated", "grounded", "auto_full_test"],
+            status="active",
+        )
+
+        self.assertEqual(self.store.list_real_skill_test_prompts(skill_id), [])
+
+    def test_prompt_metadata_is_synced_to_test_prompts_file(self):
+        skill_id, _ = self._draft_skill(status="draft")
+        self.store.add_skill_test_prompt(
+            skill_id,
+            "llm-candidate-1",
+            "A proxy receives gzip bytes but JSON.parse sees mojibake. Diagnose the fix.",
+            "Answer checks Content-Encoding and gunzips before JSON.parse.",
+            tags=["llm_generated", "grounded", "auto_full_test"],
+            metadata={"grounding_node_ids": ["source-1"]},
+        )
+
+        info = self.store.sync_skill_test_prompts_file(skill_id)
+        path = Path(info["absolute_path"])
+        try:
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("grounding_node_ids", text)
+            self.assertIn("source-1", text)
+        finally:
+            if path.exists():
+                path.unlink()
+            if path.parent.exists() and not any(path.parent.iterdir()):
+                path.parent.rmdir()
+
+    def test_verification_evidence_keeps_prompt_grounding_metadata(self):
+        skill_id, _ = self._draft_skill(status="tested")
+        self._add_verification_edges(skill_id, count=3)
+        self.store.add_skill_test_prompt(
+            skill_id,
+            "llm-candidate-1",
+            "A proxy receives gzip bytes but JSON.parse sees mojibake. Diagnose the fix.",
+            "Answer checks Content-Encoding and gunzips before JSON.parse.",
+            tags=["llm_generated", "grounded", "auto_full_test"],
+            metadata={"grounding_node_ids": ["source-1"]},
+        )
+
+        result = self.store.run_skill_darwin_evaluation(skill_id, DummyRunner(), DummyJudge())
+        evidence_id = result["darwin"].get("verification_evidence_id")
+        evidence = self.store.get_node(evidence_id)
+
+        prompt_results = evidence["metadata"]["prompt_results"]
+        self.assertEqual(prompt_results[0]["prompt_metadata"]["grounding_node_ids"], ["source-1"])
+
+    def test_score_skill_mnemosyne_is_pure_by_default(self):
+        skill_id, _ = self._draft_skill(status="tested")
+
+        result = self.store.score_skill_mnemosyne(skill_id)
+        artifact = self.store.get_skill_artifact(skill_id)
+
+        self.assertIn("mnemosyne_score", result)
+        self.assertIsNone(artifact.get("mnemosyne_score"))
+
+    def test_score_skill_mnemosyne_can_persist_when_explicit(self):
+        skill_id, _ = self._draft_skill(status="tested")
+
+        result = self.store.score_skill_mnemosyne(skill_id, persist=True)
+        artifact = self.store.get_skill_artifact(skill_id)
+
+        self.assertEqual(artifact.get("mnemosyne_score"), result["mnemosyne_score"])
+
+    def test_needs_revision_requeues_when_real_prompt_is_newer_than_eval(self):
+        skill_id, _ = self._draft_skill(status="needs_revision")
+        self.store.add_skill_test_prompt(
+            skill_id,
+            "gzip-json-1",
+            "A Node.js proxy receives garbled bytes before JSON.parse. What should it check?",
+            "Check Content-Encoding and gunzip before parsing JSON.",
+        )
+        self.store.record_skill_eval_run(skill_id, prompt_id="gzip-json-1", eval_mode="full_test")
+        self.store.update_skill_artifact(skill_id, latest_eval_mode="full_test")
+        self.store.add_skill_test_prompt(
+            skill_id,
+            "gzip-json-2",
+            "A proxy body is gzip-compressed but parsing assumes plain JSON. What should be done?",
+            "Gunzip according to Content-Encoding before JSON.parse.",
+        )
+
+        artifact = self.store.get_skill_artifact(skill_id)
+        self.assertTrue(skill_daemon._should_requeue_needs_revision(self.store, artifact))
+
+    def test_live_evolution_phase_consumes_grounded_prompts_immediately(self):
+        skill_id, _ = self._draft_skill(status="tested")
+        self._add_verification_edges(skill_id, count=3)
+        self.store.add_skill_test_prompt(
+            skill_id,
+            "llm-candidate-1",
+            "A proxy receives gzip bytes but JSON.parse sees mojibake. Diagnose the fix.",
+            "Answer checks Content-Encoding and gunzips before JSON.parse.",
+            tags=["llm_generated", "grounded", "auto_full_test"],
+            metadata={"grounding_node_ids": ["source-1"]},
+        )
+        self.store.update_skill_artifact(skill_id, metadata={"needs_real_darwin_test": True})
+
+        result = SkillLiveEvolutionPhase().run(self.store, DummyEmbedder())
+        artifact = self.store.get_skill_artifact(skill_id)
+
+        self.assertEqual(result["evaluated"], 1)
+        self.assertIn(result["evolved"], (0, 1))
+        self.assertIn(result["needs_revision"], (0, 1))
+        self.assertEqual(artifact["latest_eval_mode"], "full_test")
+        self.assertIn(artifact["metadata"].get("last_full_test_decision"), {"evolved", "needs_revision"})
+
+    def test_llm_prompt_validation_requires_baseline_and_improvement(self):
+        valid, error = SkillTestPromptGenerationPhase._validate_prompts({
+            "prompts": [
+                {
+                    "prompt": "A Node.js proxy receives garbled gzip bytes before JSON.parse. What should be checked?",
+                    "expected": "It checks Content-Encoding and gunzips before parsing.",
+                    "baseline_expected_failure": "A generic answer inspects only schema or parser options.",
+                    "with_skill_expected_improvement": "The skill forces Content-Encoding inspection before parsing.",
+                    "grounding_node_ids": ["source-1"],
+                    "risk_tags": ["gzip"],
+                },
+                {
+                    "prompt": "Use the skill on a matching task.",
+                    "expected": "too generic",
+                    "baseline_expected_failure": "none",
+                    "with_skill_expected_improvement": "none",
+                },
+            ]
+        })
+
+        self.assertIsNone(error)
+        self.assertEqual(len(valid), 1)
+        self.assertEqual(valid[0]["risk_tags"], ["gzip"])
+
+    def test_llm_prompt_validation_can_require_source_grounding(self):
+        valid, error = SkillTestPromptGenerationPhase._validate_prompts({
+            "prompts": [
+                {
+                    "prompt": "A Node.js proxy receives garbled gzip bytes before JSON.parse. What should be checked?",
+                    "expected": "It checks Content-Encoding and gunzips before parsing.",
+                    "baseline_expected_failure": "A generic answer inspects only schema or parser options.",
+                    "with_skill_expected_improvement": "The skill forces Content-Encoding inspection before parsing.",
+                    "grounding_node_ids": ["source-1"],
+                },
+                {
+                    "prompt": "An unrelated task with no source grounding.",
+                    "expected": "Something unrelated.",
+                    "baseline_expected_failure": "Unknown.",
+                    "with_skill_expected_improvement": "Unknown.",
+                    "grounding_node_ids": ["other"],
+                },
+            ]
+        }, source_node_ids=["source-1"])
+
+        self.assertIsNone(error)
+        self.assertEqual(len(valid), 1)
+        self.assertEqual(valid[0]["grounding_node_ids"], ["source-1"])
 
     def test_skill_evolution_runner_uses_injected_runners(self):
         skill_id, _ = self._draft_skill(status="tested")

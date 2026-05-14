@@ -170,6 +170,7 @@ def init_db(db_path: str = None):
             prompt TEXT NOT NULL,
             expected TEXT,
             tags TEXT DEFAULT '[]',
+            metadata TEXT DEFAULT '{}',
             status TEXT DEFAULT 'active',
             approved_by TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,

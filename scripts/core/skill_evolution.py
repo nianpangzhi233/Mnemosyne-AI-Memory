@@ -52,8 +52,13 @@ class SkillEvolutionRunner:
         artifact = self.store.get_skill_artifact(skill_id)
         if not artifact:
             raise ValueError(f"skill artifact not found: {skill_id}")
-        prompts = self.store.list_skill_test_prompts(skill_id)
+        if eval_mode == "full_test" and hasattr(self.store, "list_real_skill_test_prompts"):
+            prompts = self.store.list_real_skill_test_prompts(skill_id)
+        else:
+            prompts = self.store.list_skill_test_prompts(skill_id)
         if not prompts:
+            if eval_mode == "full_test":
+                raise ValueError("Darwin full_test requires at least one real active test prompt; auto-smoke is not evidence")
             raise ValueError("Darwin evaluation requires at least one active test prompt")
 
         skill_content = self.store.render_skill_markdown(artifact)
@@ -104,6 +109,7 @@ class SkillEvolutionRunner:
             prompt_results.append({
                 "run_id": run_id,
                 "prompt_id": prompt.get("prompt_id"),
+                "prompt_metadata": prompt.get("metadata") or {},
                 "baseline_score": baseline_score,
                 "with_skill_score": with_skill_score,
                 "delta": delta,
@@ -116,7 +122,7 @@ class SkillEvolutionRunner:
         avg_with_skill = round(sum(with_skill_scores) / len(with_skill_scores), 1)
         ratchet_score = 100.0 if avg_delta > 0 and regressions == 0 else 0.0
         darwin_score = round(dry_score["darwin_score"] * 0.35 + avg_with_skill * 0.50 + ratchet_score * 0.15, 1)
-        passed = darwin_score >= 80 and avg_delta > 0 and regressions == 0 and eval_mode != "dry_run"
+        passed = darwin_score >= 80 and avg_delta > 0 and regressions == 0 and eval_mode == "full_test"
         darwin_result = {
             "passed": passed,
             "darwin_score": darwin_score,
@@ -135,7 +141,7 @@ class SkillEvolutionRunner:
             )
             if evidence_id:
                 darwin_result["verification_evidence_id"] = evidence_id
-        mnemosyne_result = self.store.score_skill_mnemosyne(skill_id)
+        mnemosyne_result = self.store.score_skill_mnemosyne(skill_id, persist=False)
         decision = self.store.decide_skill_evolution(
             skill_id, darwin_result=darwin_result, mnemosyne_result=mnemosyne_result,
         )

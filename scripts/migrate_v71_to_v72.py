@@ -14,6 +14,15 @@ META_PATH = ROOT / "meta.json"
 VERSION = "7.2.0-draft"
 
 
+def _columns(cur, table: str) -> set:
+    return {row[1] for row in cur.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _add_column(cur, table: str, name: str, ddl: str):
+    if name not in _columns(cur, table):
+        cur.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
+
 def migrate(db_path: str = None, meta_path: str = None) -> dict:
     db = Path(db_path) if db_path else DB_PATH
     meta = Path(meta_path) if meta_path else META_PATH
@@ -41,6 +50,7 @@ def migrate(db_path: str = None, meta_path: str = None) -> dict:
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_skill_usage_feedback_skill ON skill_usage_feedback(skill_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_skill_usage_feedback_outcome ON skill_usage_feedback(outcome)")
+        _add_column(cur, "skill_test_prompts", "metadata", "TEXT DEFAULT '{}'")
         cur.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
         cur.execute("INSERT OR REPLACE INTO meta(key, value) VALUES('version', ?)", (VERSION,))
         cur.execute("INSERT OR REPLACE INTO meta(key, value) VALUES('migrated_v72_skill_evidence_flow', 'done')")

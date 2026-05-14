@@ -142,6 +142,7 @@ class SkillEvidenceFlowTest(unittest.TestCase):
         prompts = self.store.list_skill_test_prompts(skill_id)
         self.assertEqual(prompts[0]["prompt"], "A task the skill missed.")
         self.assertIn("regression", prompts[0]["tags"])
+        self.assertEqual(self.store.list_real_skill_test_prompts(skill_id)[0]["prompt"], "A task the skill missed.")
         path = sqlite_store_module._SKILLS_DIR / artifact["slug"] / "test-prompts.json"
         self.assertTrue(path.exists())
 

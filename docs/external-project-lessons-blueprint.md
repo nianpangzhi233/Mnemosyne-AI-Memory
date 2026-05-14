@@ -263,7 +263,7 @@ scripts/dashboard/pages/evolution_report.py
 Show:
 
 - What changed.
-- What needs user review.
+- Which suggested actions need observable follow-up or feedback.
 - New skill embryos.
 - Contradictions.
 - Evidence links.
@@ -272,7 +272,7 @@ Show:
 
 Provide buttons or links for:
 
-- Approve skill.
+- Start a low-risk skill trial.
 - Mark `needs_revision`.
 - Deprecate skill.
 - Open evidence chain.
@@ -578,14 +578,14 @@ Missing pieces:
 
 - Safe public demo dataset.
 - Repeatable demo script.
-- Complete scenario: multi-day conversation -> dream report -> skill review -> next-session injection.
+- Complete scenario: multi-day conversation -> dream report -> skill feedback loop -> next-session injection.
 - EvolutionReport and telemetry panels are not implemented yet.
 
 ### Root Problem
 
 The project value is currently explained mostly through technical capability. The public demo should show a user-visible outcome:
 
-> The AI remembers what was taught, dreams over it, finds repeated problems, proposes a governed skill, detects contradictions, and asks for review.
+> The AI remembers what was taught, dreams over it, finds repeated problems, proposes a governed skill, detects contradictions, and routes suggested actions into observable feedback loops.
 
 ### Blueprint
 
@@ -613,7 +613,7 @@ Demo path:
    - repeated problem found
    - skill embryo created
    - contradiction detected
-5. User approves one low-risk skill.
+5. One low-risk skill enters a trial feedback loop.
 6. New task triggers `memory_skill_inject`.
 7. Show telemetry confirming dream success and skill loop summary.
 
@@ -647,7 +647,7 @@ Three-minute script:
 - 0:00 Problem: AI loses experience.
 - 0:30 Import several days of work.
 - 1:00 Dream extracts memory and contradictions.
-- 1:40 Skill embryo and approval.
+- 1:40 Skill embryo and feedback-gated trial.
 - 2:20 Next task auto-injects approved skill.
 - 2:50 Summary: not a chat log, a governed evolving memory system.
 

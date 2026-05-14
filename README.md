@@ -215,7 +215,7 @@ The background skill daemon extends this with a post-dream skill loop:
 - run up to 2 bilateral evolution rounds per candidate
 - record trial feedback automatically
 - auto-promote only low-risk skills after 3 consecutive successful trials
-- keep medium/high-risk skills in a pending-approval state
+- keep medium/high-risk skills out of default injection unless an explicit policy allows them
 
 ```bash
 skill-daemon.cmd

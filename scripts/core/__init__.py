@@ -22,7 +22,7 @@ from .dream_pipeline import (
     DreamPhase, DreamPipeline, run_dream,
     SnapshotPhase, AuditPhase, LLMReviewPhase,
     LogScanPhase, DistillPhase, SimilarToPhase, CausalPhase, ConceptPhase, ContradictsPhase, TransfersPhase,
-    SkillEmbryoPhase, SkillDevelopmentPhase, SkillMirrorEvolutionPhase,
+    SkillEmbryoPhase, SkillDevelopmentPhase, SkillTestPromptGenerationPhase, SkillLiveEvolutionPhase, SkillMirrorEvolutionPhase,
     StrategyPhase, CovenantPhase, DecayPhase, SyncPhase,
 )
 
@@ -63,6 +63,8 @@ __all__ = [
     "TransfersPhase",
     "SkillEmbryoPhase",
     "SkillDevelopmentPhase",
+    "SkillTestPromptGenerationPhase",
+    "SkillLiveEvolutionPhase",
     "SkillMirrorEvolutionPhase",
     "StrategyPhase",
     "CovenantPhase",

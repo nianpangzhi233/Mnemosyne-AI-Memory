@@ -33,7 +33,7 @@ def _connect(db_path: Path):
     return conn
 
 
-def _latest_eval_summary(conn, skill_id: str):
+def _latest_eval_summary(conn, store: SQLiteStore, skill_id: str):
     rows = [dict(r) for r in conn.execute(
         "SELECT * FROM skill_eval_runs WHERE skill_id=? AND eval_mode!='dry_run' ORDER BY datetime(created_at)",
         (skill_id,),
@@ -80,9 +80,10 @@ def _latest_eval_summary(conn, skill_id: str):
             best = candidate
     best["latest_decision"] = latest.get("decision")
     best["latest_decision_reason"] = latest.get("decision_reason")
+    real_prompt_ids = {str(item.get("prompt_id") or "") for item in store.list_real_skill_test_prompts(skill_id)}
     prompt_ids = [str(item.get("prompt_id") or "") for item in best.get("prompt_results") or []]
     best["auto_smoke_only"] = bool(prompt_ids) and all(pid == "auto-smoke" for pid in prompt_ids)
-    best["real_prompt_count"] = sum(1 for pid in prompt_ids if pid and pid != "auto-smoke")
+    best["real_prompt_count"] = sum(1 for pid in prompt_ids if pid in real_prompt_ids)
     return best
 
 
@@ -99,7 +100,7 @@ def analyze(db_path: Path):
     conn = _connect(db_path)
     try:
         artifacts = store.list_skill_artifacts()
-        summaries = {artifact["node_id"]: _latest_eval_summary(conn, artifact["node_id"]) for artifact in artifacts}
+        summaries = {artifact["node_id"]: _latest_eval_summary(conn, store, artifact["node_id"]) for artifact in artifacts}
         actions = []
         duplicate_groups = defaultdict(list)
         for artifact in artifacts:

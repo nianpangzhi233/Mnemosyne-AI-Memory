@@ -619,6 +619,8 @@ class SQLiteStore(AbstractGraphStore):
                     result["tags"] = json.loads(result["tags"])
                 except (json.JSONDecodeError, TypeError):
                     pass
+            result["metadata"] = _json_loads(result.get("metadata"), {})
+            result["context_tags"] = _json_loads(result.get("context_tags"), [])
             return result
         finally:
             conn.close()
@@ -1541,7 +1543,7 @@ class SQLiteStore(AbstractGraphStore):
             raise ValueError(f"skill artifact not found: {skill_id}")
         if not darwin_result.get("passed"):
             return None
-        if darwin_result.get("eval_mode") == "dry_run":
+        if darwin_result.get("eval_mode") in {"dry_run", "replay_smoke"}:
             return None
         if (darwin_result.get("live_test_delta") or 0) <= 0:
             return None
@@ -1549,6 +1551,19 @@ class SQLiteStore(AbstractGraphStore):
             return None
 
         prompt_results = prompt_results or darwin_result.get("prompt_results") or []
+        prompt_ids = {str(item.get("prompt_id") or "") for item in prompt_results}
+        real_prompts = self.list_real_skill_test_prompts(skill_id)
+        prompt_metadata_by_id = {str(item.get("prompt_id") or ""): item.get("metadata") or {} for item in real_prompts}
+        real_prompt_ids = set(prompt_metadata_by_id)
+        if not prompt_ids or not prompt_ids.intersection(real_prompt_ids):
+            return None
+        grounded_prompt_results = []
+        for item in prompt_results:
+            merged = dict(item)
+            prompt_id = str(item.get("prompt_id") or "")
+            if prompt_id in prompt_metadata_by_id:
+                merged["prompt_metadata"] = prompt_metadata_by_id[prompt_id]
+            grounded_prompt_results.append(merged)
         content = (
             f"Darwin full-test verification for skill {skill_id}\n"
             f"Skill: {artifact.get('name') or skill_id}\n"
@@ -1574,7 +1589,7 @@ class SQLiteStore(AbstractGraphStore):
                 "with_skill_score": darwin_result.get("with_skill_score"),
                 "live_test_delta": darwin_result.get("live_test_delta"),
                 "regression_count": darwin_result.get("regression_count"),
-                "prompt_results": prompt_results,
+                "prompt_results": grounded_prompt_results,
             },
         )
         self.add_edge(skill_id, evidence_id, "verified_by", weight=0.85, source="darwin_full_test")
@@ -1610,9 +1625,11 @@ class SQLiteStore(AbstractGraphStore):
 
     def add_skill_test_prompt(self, skill_id: str, prompt_id: str, prompt: str,
                               expected: str = "", tags: List[str] = None,
-                              status: str = "active", approved_by: str = None) -> str:
+                              status: str = "active", approved_by: str = None,
+                              metadata: Dict[str, Any] = None) -> str:
         if not self.get_skill_artifact(skill_id):
             raise ValueError(f"skill artifact not found: {skill_id}")
+        self._ensure_skill_test_prompt_metadata_column()
         row_id = str(uuid.uuid4())
         now = _now_iso()
         conn = self._connect()
@@ -1620,19 +1637,21 @@ class SQLiteStore(AbstractGraphStore):
             cur = conn.cursor()
             cur.execute("""
                 INSERT INTO skill_test_prompts(
-                    id, skill_id, prompt_id, prompt, expected, tags, status,
+                    id, skill_id, prompt_id, prompt, expected, tags, metadata, status,
                     approved_by, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(skill_id, prompt_id) DO UPDATE SET
                     prompt=excluded.prompt,
                     expected=excluded.expected,
                     tags=excluded.tags,
+                    metadata=excluded.metadata,
                     status=excluded.status,
                     approved_by=excluded.approved_by,
                     updated_at=excluded.updated_at
             """, (
                 row_id, skill_id, prompt_id, prompt, expected,
-                _json_dumps(tags or []), status, approved_by, now, now,
+                _json_dumps(tags or []), json.dumps(metadata or {}, ensure_ascii=False),
+                status, approved_by, now, now,
             ))
             conn.commit()
             row = cur.execute(
@@ -1643,7 +1662,19 @@ class SQLiteStore(AbstractGraphStore):
         finally:
             conn.close()
 
+    def _ensure_skill_test_prompt_metadata_column(self) -> None:
+        conn = self._connect()
+        try:
+            cur = conn.cursor()
+            cols = {row[1] for row in cur.execute("PRAGMA table_info(skill_test_prompts)").fetchall()}
+            if "metadata" not in cols:
+                cur.execute("ALTER TABLE skill_test_prompts ADD COLUMN metadata TEXT DEFAULT '{}'")
+                conn.commit()
+        finally:
+            conn.close()
+
     def list_skill_test_prompts(self, skill_id: str, active_only: bool = True) -> List[Dict[str, Any]]:
+        self._ensure_skill_test_prompt_metadata_column()
         conn = self._connect()
         try:
             cur = conn.cursor()
@@ -1658,10 +1689,35 @@ class SQLiteStore(AbstractGraphStore):
             for row in cur.fetchall():
                 item = dict(zip(keys, row))
                 item["tags"] = _json_loads(item.get("tags"), [])
+                item["metadata"] = _json_loads(item.get("metadata"), {})
                 rows.append(item)
             return rows
         finally:
             conn.close()
+
+    @staticmethod
+    def is_real_skill_test_prompt(prompt: Dict[str, Any]) -> bool:
+        tags = prompt.get("tags") or []
+        if isinstance(tags, str):
+            tags = _json_loads(tags, [])
+        if prompt.get("prompt_id") == "auto-smoke" or "auto" in tags or "smoke" in tags:
+            return False
+        if (prompt.get("status") or "active") != "active":
+            return False
+        text = (prompt.get("prompt") or "").strip()
+        expected = (prompt.get("expected") or "").strip()
+        if not text or not expected:
+            return False
+        metadata = prompt.get("metadata") or {}
+        if isinstance(metadata, str):
+            metadata = _json_loads(metadata, {})
+        if "llm_generated" in tags and not metadata.get("grounding_node_ids"):
+            return False
+        generic = "use the skill" in text.lower() and "matching task" in text.lower()
+        return not generic
+
+    def list_real_skill_test_prompts(self, skill_id: str) -> List[Dict[str, Any]]:
+        return [item for item in self.list_skill_test_prompts(skill_id) if self.is_real_skill_test_prompt(item)]
 
     def sync_skill_test_prompts_file(self, skill_id: str) -> Dict[str, Any]:
         artifact = self.get_skill_artifact(skill_id)
@@ -1678,6 +1734,7 @@ class SQLiteStore(AbstractGraphStore):
                 "prompt": item.get("prompt"),
                 "expected": item.get("expected") or "",
                 "tags": item.get("tags") or [],
+                "metadata": item.get("metadata") or {},
                 "status": item.get("status") or "active",
             }
             for item in prompts
@@ -1773,7 +1830,7 @@ class SQLiteStore(AbstractGraphStore):
         finally:
             conn.close()
 
-    def score_skill_mnemosyne(self, skill_id: str) -> Dict[str, Any]:
+    def score_skill_mnemosyne(self, skill_id: str, persist: bool = False) -> Dict[str, Any]:
         artifact = self.get_skill_artifact(skill_id)
         if not artifact:
             raise ValueError(f"skill artifact not found: {skill_id}")
@@ -1839,7 +1896,8 @@ class SQLiteStore(AbstractGraphStore):
                 "revision_edges": revision_edges,
             },
         }
-        self.update_skill_artifact(skill_id, mnemosyne_score=result["mnemosyne_score"], latest_mnemosyne_score=result["mnemosyne_score"])
+        if persist:
+            self.update_skill_artifact(skill_id, mnemosyne_score=result["mnemosyne_score"])
         return result
 
     def decide_skill_evolution(self, skill_id: str, darwin_result: Dict[str, Any] = None,
@@ -1854,12 +1912,19 @@ class SQLiteStore(AbstractGraphStore):
         live_delta = darwin_result.get("live_test_delta")
         regression_count = darwin_result.get("regression_count", 0)
         eval_mode = darwin_result.get("eval_mode", "unknown")
+        prompt_results = darwin_result.get("prompt_results") or []
+        prompt_ids = {str(item.get("prompt_id") or "") for item in prompt_results}
+        real_prompt_ids = {str(item.get("prompt_id") or "") for item in self.list_real_skill_test_prompts(skill_id)}
+        has_real_prompt_evidence = bool(prompt_ids.intersection(real_prompt_ids))
         reasons = []
 
         darwin_passed = bool(darwin_result.get("passed"))
-        if eval_mode == "dry_run":
+        if eval_mode in {"dry_run", "replay_smoke"}:
             darwin_passed = False
-            reasons.append("dry_run_cannot_evolve")
+            reasons.append(f"{eval_mode}_cannot_evolve")
+        if eval_mode == "full_test" and not has_real_prompt_evidence:
+            darwin_passed = False
+            reasons.append("missing_real_test_prompt")
         if live_delta is None or live_delta <= 0:
             darwin_passed = False
             reasons.append("missing_positive_live_test_delta")
@@ -1884,20 +1949,33 @@ class SQLiteStore(AbstractGraphStore):
             decision = "needs_revision"
             decision_reason = "; ".join(dict.fromkeys(reasons)) or "bilateral pass incomplete"
 
-        self.update_skill_artifact(
-            skill_id,
-            status=decision if decision in SKILL_STATUSES else artifact.get("status"),
-            review_status=decision,
-            darwin_score=darwin_score,
-            mnemosyne_score=mnemosyne_score,
-            final_score=round(0.5 * float(darwin_score) + 0.5 * float(mnemosyne_score), 1),
-            latest_darwin_score=darwin_score,
-            latest_mnemosyne_score=mnemosyne_score,
-            latest_live_test_delta=live_delta,
-            latest_eval_mode=eval_mode,
-            latest_decision=decision,
-            latest_decision_reason=decision_reason,
-        )
+        if eval_mode == "full_test" and has_real_prompt_evidence:
+            updates = {
+                "status": decision if decision in SKILL_STATUSES else artifact.get("status"),
+                "review_status": decision,
+                "latest_eval_mode": eval_mode,
+                "latest_decision": decision,
+                "latest_decision_reason": decision_reason,
+                "darwin_score": darwin_score,
+                "mnemosyne_score": mnemosyne_score,
+                "final_score": round(0.5 * float(darwin_score) + 0.5 * float(mnemosyne_score), 1),
+                "latest_darwin_score": darwin_score,
+                "latest_mnemosyne_score": mnemosyne_score,
+                "latest_live_test_delta": live_delta,
+            }
+        else:
+            metadata = artifact.get("metadata") or {}
+            metadata["latest_non_governing_eval"] = {
+                "eval_mode": eval_mode,
+                "decision": decision,
+                "decision_reason": decision_reason,
+                "darwin_score": darwin_score,
+                "mnemosyne_score": mnemosyne_score,
+                "live_test_delta": live_delta,
+                "recorded_at": _now_iso(),
+            }
+            updates = {"metadata": metadata}
+        self.update_skill_artifact(skill_id, **updates)
         return {
             "skill_id": skill_id,
             "decision": decision,

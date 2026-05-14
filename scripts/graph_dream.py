@@ -30,7 +30,7 @@ from core import (
     SQLiteStore, HarrierEmbedder,
     run_dream, DreamPipeline,
     SimilarToPhase, CausalPhase, ContradictsPhase, TransfersPhase,
-    SkillEmbryoPhase, SkillDevelopmentPhase, SkillMirrorEvolutionPhase,
+    SkillEmbryoPhase, SkillDevelopmentPhase, SkillTestPromptGenerationPhase, SkillLiveEvolutionPhase, SkillMirrorEvolutionPhase,
     StrategyPhase, CovenantPhase, DecayPhase, SyncPhase,
 )
 

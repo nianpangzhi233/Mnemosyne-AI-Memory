@@ -54,6 +54,7 @@ def step3_create_bilateral_tables(cur):
             prompt TEXT NOT NULL,
             expected TEXT,
             tags TEXT DEFAULT '[]',
+            metadata TEXT DEFAULT '{}',
             status TEXT DEFAULT 'active',
             approved_by TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -62,6 +63,7 @@ def step3_create_bilateral_tables(cur):
             FOREIGN KEY(skill_id) REFERENCES nodes(id)
         )
     """)
+    _add_column(cur, "skill_test_prompts", "metadata", "TEXT DEFAULT '{}'")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS skill_eval_runs (
             id TEXT PRIMARY KEY,
