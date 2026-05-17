@@ -4,6 +4,8 @@ graph.backup-before-*.db
 graph.db.bak-*
 graph.db.v*.bak.*
 dream_log.db
+v8/data/*.db
+v8/data/*.db-*
 *.db-journal
 *.db-wal
 
