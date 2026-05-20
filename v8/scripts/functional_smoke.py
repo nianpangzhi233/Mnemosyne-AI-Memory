@@ -81,6 +81,8 @@ def run(db_path: str | Path | None = None) -> dict:
             "supports",
             "--content",
             "`python -c \"import py_compile, pathlib; [py_compile.compile(str(p), doraise=True) for p in pathlib.Path('v8/src/v8_memory').glob('*.py')]\"` compiled the modules successfully.",
+            "--sources",
+            event["id"],
         ]
     )
     memory = _cli(db + ["lifecycle", "promote", "--candidate", candidate["id"]])

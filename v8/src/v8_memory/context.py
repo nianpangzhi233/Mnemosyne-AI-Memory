@@ -29,6 +29,7 @@ class ContextPackBuilder:
                 "content": memory["content"],
                 "scope": loads(memory["scope_json"]),
                 "status": memory["status"],
+                "source_events": self._source_event_snippets(memory),
                 "evidence": self._evidence_snippets(memory),
             }
             if ok:
@@ -39,6 +40,27 @@ class ContextPackBuilder:
         warnings: list[str] = []
         self.store.insert_context_run(run_id, now_iso(), task, normalize_scope(scope), selected, rejected, warnings, budget or {})
         return {"id": run_id, "items": selected, "rejected": rejected, "warnings": warnings}
+
+    def _source_event_snippets(self, memory: dict[str, Any]) -> list[dict[str, Any]]:
+        candidate = self.store.get("candidates", memory["candidate_id"])
+        if not candidate:
+            return []
+        snippets: list[dict[str, Any]] = []
+        for event_id in loads(candidate["source_event_ids_json"], []):
+            event = self.store.get("raw_events", event_id)
+            if not event:
+                continue
+            snippets.append(
+                {
+                    "id": event["id"],
+                    "event_type": event["event_type"],
+                    "actor": event["actor"],
+                    "trust": event["trust"],
+                    "content": event["content"],
+                    "scope": loads(event["scope_json"]),
+                }
+            )
+        return snippets
 
     def _evidence_snippets(self, memory: dict[str, Any]) -> list[dict[str, Any]]:
         snippets: list[dict[str, Any]] = []

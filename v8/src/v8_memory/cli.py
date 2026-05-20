@@ -77,6 +77,7 @@ def _add_evidence_parser(sub):
     ev.add_argument("--type", required=True)
     ev.add_argument("--polarity", required=True)
     ev.add_argument("--content", required=True)
+    ev.add_argument("--sources", nargs="*", default=[])
     get = sub.add_parser("get")
     get.add_argument("--id", required=True)
     list_cmd = sub.add_parser("list")
@@ -164,6 +165,7 @@ def main(argv: list[str] | None = None) -> int:
     legacy_ev.add_argument("--type", required=True)
     legacy_ev.add_argument("--polarity", required=True)
     legacy_ev.add_argument("--content", required=True)
+    legacy_ev.add_argument("--sources", nargs="*", default=[])
 
     legacy_promote = sub.add_parser("promote")
     legacy_promote.set_defaults(action="promote")
@@ -198,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
                 result = {"items": store.inspect_list("candidates", args.limit)}
         elif args.cmd in {"evidence", "evidence-add"}:
             if args.action == "add":
-                result = {"id": EvidenceRecorder(store).add(args.target_type, args.target, args.type, args.polarity, args.content)}
+                result = {"id": EvidenceRecorder(store).add(args.target_type, args.target, args.type, args.polarity, args.content, args.sources)}
             elif args.action == "get":
                 result = store.inspect_get("evidence", args.id)
             elif args.target_type and args.target:

@@ -244,6 +244,8 @@ class V8MVPTest(unittest.TestCase):
                 "supports",
                 "--content",
                 "Using a PowerShell-compatible command fixed the issue.",
+                "--sources",
+                event["id"],
             ]
         )
         memory = self._run_cli(db_arg + ["lifecycle", "promote", "--candidate", candidate["id"]])
@@ -261,8 +263,11 @@ class V8MVPTest(unittest.TestCase):
 
         self.assertEqual(pack["items"][0]["id"], memory["id"])
         self.assertEqual(pack["items"][0]["content"], "PowerShell does not support Bash heredoc.")
+        self.assertEqual(pack["items"][0]["source_events"][0]["id"], event["id"])
+        self.assertEqual(pack["items"][0]["source_events"][0]["event_type"], "tool_error")
         self.assertEqual(pack["items"][0]["evidence"][0]["type"], "task_success")
         self.assertEqual(pack["items"][0]["evidence"][0]["polarity"], "supports")
+        self.assertEqual(pack["items"][0]["evidence"][0]["source_event_ids"], [event["id"]])
 
     def test_cli_error_returns_json(self):
         result, code = self._run_cli_raw(
@@ -331,6 +336,7 @@ class V8MVPTest(unittest.TestCase):
         self.assertEqual(memories["items"][0]["id"], memory_id)
         self.assertEqual(events["items"][0]["event_type"], "tool_error")
         self.assertEqual(run["selected"][0]["id"], memory_id)
+        self.assertEqual(run["selected"][0]["source_events"][0]["event_type"], "tool_error")
         self.assertEqual(run["selected"][0]["evidence"][0]["polarity"], "supports")
 
     def test_cli_evidence_list_can_filter_by_target(self):
@@ -357,7 +363,9 @@ class V8MVPTest(unittest.TestCase):
         result = functional_smoke.run(self.tmp / "functional.db")
 
         self.assertEqual(result["context"]["items"][0]["id"], result["memory_id"])
+        self.assertEqual(result["context"]["items"][0]["source_events"][0]["event_type"], "tool_error")
         self.assertEqual(result["context"]["items"][0]["evidence"][0]["type"], "task_success")
+        self.assertEqual(result["context"]["items"][0]["evidence"][0]["source_event_ids"], [result["event_id"]])
         self.assertIn("PowerShell does not expand", result["memory"]["content"])
         self.assertEqual(result["memory"]["scope"]["project_id"], "memory-evolution")
 
