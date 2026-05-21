@@ -185,6 +185,42 @@ v8_event_add -> v8_candidate_add -> v8_evidence_add -> v8_lifecycle_promote -> v
 
 By default the MCP server writes V8 state to `v8/data/v8.db`. Tests and local experiments can override this with `MCP_V8_DB=<path>`.
 
+## REST API
+
+The V8 REST surface is mounted on the existing FastAPI app under `/api/v8`. It is a thin wrapper over the same V8 services used by CLI and MCP.
+
+Stable V8 REST endpoints:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/v8/health` | Check V8 store health. |
+| `POST /api/v8/events` | Append a RawEvent. |
+| `POST /api/v8/candidates` | Create a Candidate from RawEvent source IDs. |
+| `POST /api/v8/evidence` | Attach Evidence to a Candidate or Memory. |
+| `POST /api/v8/lifecycle/promote` | Promote a Candidate if WriteGate passes. |
+| `POST /api/v8/lifecycle/demote` | Demote a Memory. |
+| `POST /api/v8/lifecycle/stale` | Mark a Memory stale. |
+| `POST /api/v8/lifecycle/deprecate` | Deprecate a Memory. |
+| `POST /api/v8/context-packs` | Build a governed ContextPack. |
+| `GET /api/v8/memories` | List Memories. |
+| `GET /api/v8/memories/{id}` | Inspect one Memory. |
+| `GET /api/v8/records/{table}` | List raw V8 table records. |
+| `GET /api/v8/records/{table}/{id}` | Inspect one raw V8 table record. |
+
+Minimal REST flow:
+
+```powershell
+python scripts/api/start_api.py --port 8979
+
+curl -X POST http://127.0.0.1:8979/api/v8/events `
+  -H "Content-Type: application/json" `
+  -d '{"event_type":"tool_error","actor":"agent","content":"PowerShell rejected Bash heredoc syntax.","scope":{"project_id":"memory-evolution","session_id":"demo"}}'
+```
+
+Then call `candidates`, `evidence`, `lifecycle/promote`, and `context-packs` with the returned IDs. REST returns the same auditable fields as CLI and MCP: `source_events`, `evidence`, `evidence.source_event_ids`, and `rejected.reason`.
+
+By default REST writes V8 state to `v8/data/v8.db`. Tests and local experiments can override this with `MNEMOSYNE_V8_DB=<path>` or `V8_DB=<path>`.
+
 ## Functional Smoke
 
 Run the real-scenario smoke test with a temporary or explicit database:

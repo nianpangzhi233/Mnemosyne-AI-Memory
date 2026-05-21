@@ -324,6 +324,8 @@ GET /api/telemetry/runs
 GET /api/telemetry/runs/summary
 ```
 
+V8 is the new evidence-governed runtime. Its REST endpoints live under `/api/v8`, including `POST /api/v8/events`, `POST /api/v8/candidates`, `POST /api/v8/evidence`, `POST /api/v8/lifecycle/promote`, and `POST /api/v8/context-packs`. V7 is being preserved as a legacy archive; see `V7_ARCHIVE_POLICY.md` and `V7_TO_V8_MIGRATION.md`.
+
 ### CLI
 
 ```bash

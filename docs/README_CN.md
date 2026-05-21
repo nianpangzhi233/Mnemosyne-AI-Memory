@@ -321,6 +321,8 @@ GET /api/telemetry/runs
 GET /api/telemetry/runs/summary
 ```
 
+V8 是新的 evidence-governed runtime。REST 端点位于 `/api/v8`，包括 `POST /api/v8/events`、`POST /api/v8/candidates`、`POST /api/v8/evidence`、`POST /api/v8/lifecycle/promote`、`POST /api/v8/context-packs`。V7 将作为 legacy archive 保留，见 `V7_ARCHIVE_POLICY.md` 和 `V7_TO_V8_MIGRATION.md`。
+
 ### CLI
 
 ```bash

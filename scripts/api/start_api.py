@@ -27,17 +27,23 @@ scripts_dir = Path(__file__).resolve().parent.parent
 if str(scripts_dir) not in sys.path:
     sys.path.insert(0, str(scripts_dir))
 
+v8_src_dir = scripts_dir.parent / "v8" / "src"
+if v8_src_dir.exists() and str(v8_src_dir) not in sys.path:
+    sys.path.insert(0, str(v8_src_dir))
+
 from core.sqlite_store import SQLiteStore
 from core.embedder import HarrierEmbedder
 from core.contracts import serialize_node_fields
 from core.dream_pipeline import _init_dream_log
 from core import telemetry as telemetry_store
+from api.v8_routes import router as v8_router
 
 app = FastAPI(
     title="Mnemosyne API",
     description="Bionic memory system for AI agents — REST API",
     version="7.2.0",
 )
+app.include_router(v8_router)
 
 _store: Optional[SQLiteStore] = None
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
