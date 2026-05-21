@@ -296,6 +296,8 @@ Core memory tools: `memory_write`, `memory_search`, `memory_inject`, `memory_det
 
 Skill Memory tools: `memory_crystallize`, `memory_skill_search`, `memory_skill_inject`, `memory_skill_approve`, `memory_skill_feedback`, `memory_skill_deprecate`.
 
+V8 evidence-governed kernel tools are available with the `v8_` prefix, including `v8_event_add`, `v8_candidate_add`, `v8_evidence_add`, `v8_lifecycle_promote`, and `v8_context_build`. See `v8/README.md` for the stable V8 contract.
+
 `memory_search` supports `hybrid`, `precise`, `creative`, `vector`, and `keyword` modes, plus graph dimension and tag filters.
 
 ### REST API

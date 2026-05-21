@@ -294,6 +294,8 @@ skills/<slug>/test-prompts.json
 
 Skill Memory 工具：`memory_crystallize`、`memory_skill_search`、`memory_skill_inject`、`memory_skill_approve`、`memory_skill_feedback`、`memory_skill_deprecate`。
 
+V8 evidence-governed kernel 工具使用 `v8_` 前缀，包括 `v8_event_add`、`v8_candidate_add`、`v8_evidence_add`、`v8_lifecycle_promote`、`v8_context_build`。稳定契约见 `v8/README.md`。
+
 `memory_search` 支持 `hybrid`、`precise`、`creative`、`vector`、`keyword` 五种模式，也支持 graph dimension 和标签过滤。
 
 ### REST API

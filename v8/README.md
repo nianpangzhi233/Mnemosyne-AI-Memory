@@ -156,6 +156,35 @@ python -m v8_memory.cli --db "v8/data/v8.db" memory get --id <memory_id> --prett
 python -m v8_memory.cli --db "v8/data/v8.db" context list --pretty
 ```
 
+## MCP Tools
+
+The existing Mnemosyne MCP server also exposes the V8 kernel. The V8 tools are prefixed with `v8_` so they do not conflict with the V7 graph-memory tools.
+
+Stable V8 MCP tools:
+
+| Tool | Purpose |
+| --- | --- |
+| `v8_event_add` | Append a RawEvent. |
+| `v8_candidate_add` | Create a Candidate from RawEvent source IDs. |
+| `v8_evidence_add` | Attach Evidence to a Candidate or Memory. |
+| `v8_lifecycle_promote` | Promote a Candidate if WriteGate passes. |
+| `v8_lifecycle_demote` | Demote a Memory so ReadGate blocks it. |
+| `v8_lifecycle_stale` | Mark a Memory stale and set freshness to zero. |
+| `v8_lifecycle_deprecate` | Deprecate a Memory. |
+| `v8_context_build` | Build a governed ContextPack. |
+| `v8_memory_get` / `v8_memory_list` | Inspect Memories. |
+| `v8_record_get` / `v8_record_list` | Inspect raw V8 tables. |
+
+Minimal MCP flow:
+
+```text
+v8_event_add -> v8_candidate_add -> v8_evidence_add -> v8_lifecycle_promote -> v8_context_build
+```
+
+`v8_context_build` returns the same auditable shape as the CLI: selected memories include `source_events`, supporting `evidence`, and `evidence.source_event_ids`; rejected memories include reason codes.
+
+By default the MCP server writes V8 state to `v8/data/v8.db`. Tests and local experiments can override this with `MCP_V8_DB=<path>`.
+
 ## Functional Smoke
 
 Run the real-scenario smoke test with a temporary or explicit database:
