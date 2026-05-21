@@ -234,6 +234,8 @@ The smoke uses a real issue from V8 implementation: PowerShell did not expand `*
 
 For a user-facing V8-only demo, run `python demo/run_v8_demo.py` from the repository root.
 
+For the current handover status and next-step notes, see `../V8_HANDOVER.md`.
+
 ## Runtime Files
 
 Runtime databases live under `v8/data/` and are ignored by git.

@@ -478,6 +478,7 @@ Runs on pure rules by default — no LLM needed. For smarter review, copy `llm_c
 - [Contributing](CONTRIBUTING.md)
 - [Security Policy](SECURITY.md)
 - [Open Source Launch Checklist](docs/open-source-launch.md)
+- [V8 Handover](V8_HANDOVER.md)
 - [V7 Archive Index](V7_ARCHIVE_INDEX.md)
 - [FAQ](docs/faq.md)
 - [Benchmarks](docs/benchmarks.md)
