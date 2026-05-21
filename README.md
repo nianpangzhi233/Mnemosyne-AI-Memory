@@ -83,12 +83,14 @@ cd Mnemosyne-AI-Memory
 python setup.py
 ```
 
-On Windows, start the local API and dashboard with the bundled shortcuts:
+On Windows, start the local V8 API and dashboard with the bundled shortcuts:
 
 ```bash
-start-api.cmd
+start-v8-api.cmd
 start-dashboard.cmd
 ```
+
+`start-api.cmd` remains as a legacy launcher for the combined API surface.
 
 Manual startup works the same way:
 
@@ -97,7 +99,7 @@ python scripts/api/start_api.py --port 8979
 streamlit run scripts/dashboard/app.py --server.port 8501 --server.headless=true --browser.gatherUsageStats=false
 ```
 
-Run a full dream manually when you want consolidation now:
+Run the legacy V7 dream manually when you want consolidation now:
 
 ```bash
 python scripts/graph_dream.py --full
@@ -106,13 +108,16 @@ python scripts/graph_dream.py --full
 Run the safe cold-start demo first if you want to see the whole user story without touching your real databases:
 
 ```bash
+python demo/run_v8_demo.py
 python demo/run_demo.py
 python demo/run_demo.py --keep --out %TEMP%\mnemosyne-demo-kept
 ```
 
-The demo imports safe seed conversations, creates typed graph evidence, writes a reviewable `EvolutionReport`, creates a low-risk trial skill, demonstrates skill injection, and records a telemetry run. A successful run prints `status: PASS` with explicit checks.
+`demo/run_v8_demo.py` is the V8-only demo path. `demo/run_demo.py` is the legacy V7-heavy story demo.
 
-If you only want the main memory flow, run `python setup.py` first and then use `graph_write.py`, `graph_query.py`, and `graph_dream.py`.
+The legacy demo imports safe seed conversations, creates typed graph evidence, writes a reviewable `EvolutionReport`, creates a low-risk trial skill, demonstrates skill injection, and records a telemetry run. A successful run prints `status: PASS` with explicit checks.
+
+If you only want the legacy V7 graph flow, run `python setup.py` first and then use `graph_write.py`, `graph_query.py`, and `graph_dream.py`.
 
 ```python
 # Write an experience
@@ -304,7 +309,8 @@ V8 evidence-governed kernel tools are available with the `v8_` prefix, including
 
 ```bash
 python scripts/api/start_api.py --port 8979
-# Windows shortcut: start-api.cmd
+# Windows shortcut: start-v8-api.cmd
+# Legacy shortcut: start-api.cmd
 # Swagger docs: http://localhost:8979/docs
 
 curl http://localhost:8979/api/health

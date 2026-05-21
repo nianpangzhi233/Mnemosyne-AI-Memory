@@ -83,12 +83,14 @@ cd Mnemosyne-AI-Memory
 python setup.py
 ```
 
-Windows 下优先用自带脚本启动本地 API 和 Dashboard：
+Windows 下优先用自带脚本启动本地 V8 API 和 Dashboard：
 
 ```bash
-start-api.cmd
+start-v8-api.cmd
 start-dashboard.cmd
 ```
+
+`start-api.cmd` 仍保留为兼容旧入口的 legacy 启动器。
 
 手动启动也可以：
 
@@ -97,7 +99,7 @@ python scripts/api/start_api.py --port 8979
 streamlit run scripts/dashboard/app.py --server.port 8501 --server.headless=true --browser.gatherUsageStats=false
 ```
 
-想立刻触发一次完整整合：
+想立刻触发一次 legacy V7 完整整合：
 
 ```bash
 python scripts/graph_dream.py --full
@@ -106,11 +108,14 @@ python scripts/graph_dream.py --full
 如果想先看完整用户故事，又不污染真实 `graph.db` / `dream_log.db`，跑安全冷启动 Demo：
 
 ```bash
+python demo/run_v8_demo.py
 python demo/run_demo.py
 python demo/run_demo.py --keep --out %TEMP%\mnemosyne-demo-kept
 ```
 
-Demo 会导入安全三日样本，生成类型化图谱证据，写出可审阅 `EvolutionReport`，创建低风险 trial skill，演示技能注入，并记录 telemetry run。成功时输出 `status: PASS` 和明确检查项。
+`demo/run_v8_demo.py` 是 V8-only demo 路径；`demo/run_demo.py` 仍是 legacy V7-heavy 故事 demo。
+
+Legacy Demo 会导入安全三日样本，生成类型化图谱证据，写出可审阅 `EvolutionReport`，创建低风险 trial skill，演示技能注入，并记录 telemetry run。成功时输出 `status: PASS` 和明确检查项。
 
 ```python
 # 写入一条经验

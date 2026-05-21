@@ -210,7 +210,7 @@ Stable V8 REST endpoints:
 Minimal REST flow:
 
 ```powershell
-python scripts/api/start_api.py --port 8979
+start-v8-api.cmd
 
 curl -X POST http://127.0.0.1:8979/api/v8/events `
   -H "Content-Type: application/json" `
@@ -231,6 +231,8 @@ python "v8/scripts/functional_smoke.py" --db "v8/data/functional-smoke.db"
 ```
 
 The smoke uses a real issue from V8 implementation: PowerShell did not expand `*.py` for `python -m py_compile`, while a Python `pathlib.glob('*.py')` compile command worked. It records that as RawEvent, Candidate, Evidence, ValidatedMemory, and then builds a ContextPack.
+
+For a user-facing V8-only demo, run `python demo/run_v8_demo.py` from the repository root.
 
 ## Runtime Files
 
