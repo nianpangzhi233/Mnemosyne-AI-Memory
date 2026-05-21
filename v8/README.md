@@ -122,6 +122,30 @@ python -m v8_memory.cli --db "v8/data/v8.db" lifecycle deprecate --memory <memor
 
 `demote` and `deprecate` block injection by status. `stale` also sets freshness to zero and is reported as a freshness rejection.
 
+## Gate Reason Codes
+
+WriteGate checks whether a Candidate may become ValidatedMemory:
+
+| Reason | Meaning |
+| --- | --- |
+| `missing_source` | Candidate has no RawEvent source IDs. |
+| `missing_scope` | Candidate has no normalized scope. |
+| `missing_supporting_evidence` | Candidate has no supporting Evidence. |
+| `contradicting_evidence` | Candidate has at least one contradicting Evidence row. |
+| `missing_procedural_evidence` | Procedure/workflow/skill candidate lacks `test_result` or `control_flow_trace` support. |
+
+ReadGate checks whether a Memory may enter the current ContextPack:
+
+| Reason | Meaning |
+| --- | --- |
+| `stale` | Memory freshness is below the policy threshold. |
+| `status_blocked` | Memory status is not `validated` or `promoted`. |
+| `risk_blocked` | Memory risk is outside the policy's allowed risk set. |
+| `scope_mismatch` | Memory scope conflicts with the requested scope. |
+| `no_task_match` | MVP keyword match found no overlap between task and memory trigger/content. |
+
+The current MVP reports only the first ReadGate rejection reason, while WriteGate returns all promotion blockers found for a Candidate.
+
 Inspect stored records with list/get commands:
 
 ```powershell

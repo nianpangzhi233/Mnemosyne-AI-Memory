@@ -18,7 +18,7 @@ if str(V8_SCRIPTS) not in sys.path:
 
 from v8_memory.context import ContextPackBuilder
 from v8_memory.cli import main as cli_main
-from v8_memory.gates import ReadGate
+from v8_memory.gates import ReadGate, WriteGate
 from v8_memory.lifecycle import LifecycleManager
 from v8_memory.services import CandidateWriter, EvidenceRecorder, EventWriter
 from v8_memory.store import SQLiteV8Store
@@ -158,6 +158,184 @@ class V8MVPTest(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             self.lifecycle.promote(cand_id)
+
+    def test_write_gate_reason_codes_cover_missing_and_contradicting_cases(self):
+        event_id = self.events.add(
+            event_type="tool_error",
+            actor="agent",
+            content="PowerShell rejected Bash heredoc syntax.",
+            scope={"project_id": "memory-evolution", "session_id": "w1"},
+        )
+        cand_id = self.candidates.add(
+            candidate_type="claim",
+            content="PowerShell does not support Bash heredoc.",
+            source_event_ids=[event_id],
+            scope={"project_id": "memory-evolution", "session_id": "w1"},
+            trigger="running inline commands in PowerShell",
+        )
+        self.evidence.add(
+            target_type="candidate",
+            target_id=cand_id,
+            evidence_type="task_success",
+            polarity="supports",
+            content="Switching to a PowerShell-compatible command avoided the failure.",
+            source_event_ids=[event_id],
+        )
+        candidate = self.store.get("candidates", cand_id)
+        gate = WriteGate(self.store)
+
+        ok, reasons = gate.check_promote(candidate)
+        self.assertTrue(ok)
+        self.assertEqual(reasons, [])
+
+        no_source = dict(candidate)
+        no_source["source_event_ids_json"] = json.dumps([])
+        ok, reasons = gate.check_promote(no_source)
+        self.assertFalse(ok)
+        self.assertIn("missing_source", reasons)
+
+        no_scope = dict(candidate)
+        no_scope["scope_json"] = json.dumps({})
+        ok, reasons = gate.check_promote(no_scope)
+        self.assertFalse(ok)
+        self.assertIn("missing_scope", reasons)
+
+        no_support = dict(candidate)
+        conn = sqlite3.connect(self.db)
+        try:
+            conn.execute("DELETE FROM evidence WHERE target_id=?", (cand_id,))
+            conn.commit()
+        finally:
+            conn.close()
+        ok, reasons = gate.check_promote(no_support)
+        self.assertFalse(ok)
+        self.assertIn("missing_supporting_evidence", reasons)
+
+        self.evidence.add(
+            target_type="candidate",
+            target_id=cand_id,
+            evidence_type="task_success",
+            polarity="supports",
+            content="Switching to a PowerShell-compatible command avoided the failure.",
+            source_event_ids=[event_id],
+        )
+        self.evidence.add(
+            target_type="candidate",
+            target_id=cand_id,
+            evidence_type="task_failure",
+            polarity="contradicts",
+            content="The shortcut failed under a different shell.",
+            source_event_ids=[event_id],
+        )
+        ok, reasons = gate.check_promote(self.store.get("candidates", cand_id))
+        self.assertFalse(ok)
+        self.assertIn("contradicting_evidence", reasons)
+
+    def test_write_gate_rejects_procedural_candidates_without_procedural_evidence(self):
+        event_id = self.events.add(
+            event_type="assistant_note",
+            actor="agent",
+            content="Maybe skip validation to save time.",
+            scope={"project_id": "memory-evolution", "session_id": "w2"},
+        )
+        cand_id = self.candidates.add(
+            candidate_type="procedure",
+            content="Always skip validation when the command looks safe.",
+            source_event_ids=[event_id],
+            scope={"project_id": "memory-evolution", "session_id": "w2"},
+            trigger="command execution",
+            risk="high",
+        )
+        self.evidence.add(
+            target_type="candidate",
+            target_id=cand_id,
+            evidence_type="task_success",
+            polarity="supports",
+            content="The shortcut seemed to work once.",
+            source_event_ids=[event_id],
+        )
+
+        ok, reasons = WriteGate(self.store).check_promote(self.store.get("candidates", cand_id))
+        self.assertFalse(ok)
+        self.assertIn("missing_procedural_evidence", reasons)
+
+    def test_read_gate_reason_codes_cover_default_blocks(self):
+        gate = ReadGate()
+
+        ok, reason = gate.check(
+            {
+                "freshness": 0.0,
+                "status": "validated",
+                "risk": "low",
+                "scope_json": json.dumps({"project_id": "memory-evolution"}),
+                "trigger": "debug PowerShell inline command",
+                "content": "PowerShell does not support Bash heredoc.",
+            },
+            task="debug PowerShell inline command",
+            scope={"project_id": "memory-evolution"},
+        )
+        self.assertFalse(ok)
+        self.assertEqual(reason, "stale")
+
+        ok, reason = gate.check(
+            {
+                "freshness": 1.0,
+                "status": "demoted",
+                "risk": "low",
+                "scope_json": json.dumps({"project_id": "memory-evolution"}),
+                "trigger": "debug PowerShell inline command",
+                "content": "PowerShell does not support Bash heredoc.",
+            },
+            task="debug PowerShell inline command",
+            scope={"project_id": "memory-evolution"},
+        )
+        self.assertFalse(ok)
+        self.assertEqual(reason, "status_blocked")
+
+        ok, reason = gate.check(
+            {
+                "freshness": 1.0,
+                "status": "validated",
+                "risk": "high",
+                "scope_json": json.dumps({"project_id": "memory-evolution"}),
+                "trigger": "debug PowerShell inline command",
+                "content": "PowerShell does not support Bash heredoc.",
+            },
+            task="debug PowerShell inline command",
+            scope={"project_id": "memory-evolution"},
+        )
+        self.assertFalse(ok)
+        self.assertEqual(reason, "risk_blocked")
+
+        ok, reason = gate.check(
+            {
+                "freshness": 1.0,
+                "status": "validated",
+                "risk": "low",
+                "scope_json": json.dumps({"project_id": "memory-evolution"}),
+                "trigger": "unrelated trigger",
+                "content": "PowerShell does not support Bash heredoc.",
+            },
+            task="compile python files",
+            scope={"project_id": "memory-evolution"},
+        )
+        self.assertFalse(ok)
+        self.assertEqual(reason, "no_task_match")
+
+        ok, reason = gate.check(
+            {
+                "freshness": 1.0,
+                "status": "validated",
+                "risk": "low",
+                "scope_json": json.dumps({"project_id": "memory-evolution"}),
+                "trigger": "debug PowerShell inline command",
+                "content": "PowerShell does not support Bash heredoc.",
+            },
+            task="debug PowerShell inline command",
+            scope={"project_id": "other-project"},
+        )
+        self.assertFalse(ok)
+        self.assertEqual(reason, "scope_mismatch")
 
     def test_stale_memory_not_injected_by_default(self):
         event_id = self.events.add(
