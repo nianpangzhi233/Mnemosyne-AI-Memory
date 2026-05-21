@@ -27,7 +27,7 @@ The point is not to store more text. The point is to prevent unsupported summari
 - Evidence-required promotion from Candidate to ValidatedMemory.
 - ReadGate filtering by scope, freshness, status, risk, and task match.
 - Lifecycle commands for promote, demote, stale, and deprecate.
-- ContextPack output with supporting evidence snippets.
+- ContextPack output with original source event snippets and supporting evidence snippets.
 - Inspection commands for events, candidates, evidence, memories, and context runs.
 - PowerShell-friendly `--scope-item key=value` flags.
 - Real-scenario functional smoke using the PowerShell wildcard compile issue.
@@ -56,8 +56,10 @@ python -m v8_memory.cli --db "v8/data/v8.db" candidate add --type claim --conten
 Attach evidence before promotion:
 
 ```powershell
-python -m v8_memory.cli --db "v8/data/v8.db" evidence add --target <candidate_id> --type task_success --polarity supports --content "Using a PowerShell-compatible command fixed the issue."
+python -m v8_memory.cli --db "v8/data/v8.db" evidence add --target <candidate_id> --type task_success --polarity supports --content "Using a PowerShell-compatible command fixed the issue." --sources <event_id>
 ```
+
+`--sources` on evidence is optional, but use it when the evidence came from a RawEvent. This keeps both the candidate and the supporting evidence grounded in inspectable source material.
 
 Promote only after evidence exists:
 
@@ -71,7 +73,42 @@ Build a scoped ContextPack:
 python -m v8_memory.cli --db "v8/data/v8.db" context build --task "debug PowerShell inline command" --scope-item project_id=memory-evolution --pretty
 ```
 
-ContextPack items include the selected memory and its supporting evidence snippets, so callers can see why the memory is trusted.
+ContextPack items include the selected memory, original source events, and supporting evidence snippets, so callers can see what is trusted and why it is trusted:
+
+```json
+{
+  "items": [
+    {
+      "id": "mem_...",
+      "type": "claim",
+      "content": "PowerShell does not support Bash heredoc.",
+      "status": "validated",
+      "scope": {"project_id": "memory-evolution", "session_id": "demo"},
+      "source_events": [
+        {
+          "id": "evt_...",
+          "event_type": "tool_error",
+          "actor": "agent",
+          "trust": "local",
+          "content": "PowerShell rejected Bash heredoc syntax.",
+          "scope": {"project_id": "memory-evolution", "session_id": "demo"}
+        }
+      ],
+      "evidence": [
+        {
+          "id": "ev_...",
+          "type": "task_success",
+          "polarity": "supports",
+          "content": "Using a PowerShell-compatible command fixed the issue.",
+          "source_event_ids": ["evt_..."]
+        }
+      ]
+    }
+  ],
+  "rejected": [],
+  "warnings": []
+}
+```
 
 `--scope` still accepts JSON, but `--scope-item key=value` is safer in PowerShell and can be repeated.
 
