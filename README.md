@@ -191,16 +191,16 @@ Mnemosyne is no longer append-only. Experiences can declare:
 
 When a new memory matches an old precondition, Mnemosyne validates the old prediction automatically. Confirming evidence strengthens the memory; conflicting evidence creates a `contradicts` edge and lowers stale confidence.
 
-### Dream (Automatic Consolidation)
+### Dream (Legacy Automatic Consolidation)
 
-The human brain consolidates memories during sleep. Mnemosyne does the same with a Fast/Slow dream pipeline:
+The human brain consolidates memories during sleep. The legacy V7 runtime does the same with a Fast/Slow dream pipeline:
 
 | Stream | Purpose |
 |--------|---------|
 | Fast Path | Deterministic maintenance: decay, sync, incremental association, index-safe cleanup |
 | Slow Path | Deeper consolidation: contradiction discovery, causal links, strategy distillation, optional LLM review |
 
-v6.1 optimizes Dream around a three-layer biomimetic architecture:
+V6.1 legacy Dream is organized around a three-layer biomimetic architecture:
 
 | Layer | Mnemosyne component |
 |-------|--------------------|
@@ -208,13 +208,13 @@ v6.1 optimizes Dream around a three-layer biomimetic architecture:
 | REM sleep | Incremental `similar_to` and `contradicts` discovery |
 | Prefrontal cortex | Optional LLM-assisted contradiction judgment and review |
 
-Runs automatically at 3 AM, noon, and 5 PM daily. Or trigger manually:
+Legacy V7 dream runs automatically at 3 AM, noon, and 5 PM daily. Or trigger manually:
 
 ```bash
 python scripts/graph_dream.py --full
 ```
 
-The background skill daemon extends this with a post-dream skill loop:
+The legacy background skill daemon extends this with a post-dream skill loop:
 
 - scan new `embryo` and `needs_revision` skills after each full dream run
 - run up to 2 bilateral evolution rounds per candidate
@@ -226,7 +226,7 @@ The background skill daemon extends this with a post-dream skill loop:
 skill-daemon.cmd
 ```
 
-Dream output is reviewable, not just logged. Each run writes an `EvolutionReport` with structured sections such as new memories, concepts, skill candidates, skill changes, contradictions, recommended actions, target IDs, and evidence IDs. Daemon jobs also write persistent `telemetry_runs` rows with status, duration, summary, and errors so background work is observable.
+Legacy dream output is reviewable, not just logged. Each run writes an `EvolutionReport` with structured sections such as new memories, concepts, skill candidates, skill changes, contradictions, recommended actions, target IDs, and evidence IDs. Daemon jobs also write persistent `telemetry_runs` rows with status, duration, summary, and errors so historical background work remains observable.
 
 ### Skill Memory System
 
@@ -478,6 +478,7 @@ Runs on pure rules by default — no LLM needed. For smarter review, copy `llm_c
 - [Contributing](CONTRIBUTING.md)
 - [Security Policy](SECURITY.md)
 - [Open Source Launch Checklist](docs/open-source-launch.md)
+- [V7 Archive Index](V7_ARCHIVE_INDEX.md)
 - [FAQ](docs/faq.md)
 - [Benchmarks](docs/benchmarks.md)
 - [Why it matters](docs/why-it-matters.md)

@@ -189,16 +189,16 @@ Mnemosyne 不再只是追加记录。每条经验可以声明：
 
 当新经验命中旧经验的 precondition，Mnemosyne 会自动验证旧预测。新证据如果确认旧经验，就增强 confidence；如果冲突，就创建 `contradicts` 边并降低旧记忆置信度。
 
-### 做梦（自动整合）
+### 做梦（Legacy 自动整合）
 
-人脑在睡眠中整理记忆。Mnemosyne 也一样，v6.1 使用 Fast/Slow 双流做梦流水线：
+人脑在睡眠中整理记忆。V7 legacy runtime 也一样，v6.1 使用 Fast/Slow 双流做梦流水线：
 
 | 流程 | 作用 |
 |------|------|
 | Fast Path | 确定性维护：衰减、同步、增量关联、索引安全清理 |
 | Slow Path | 深层整合：矛盾发现、因果连接、策略提炼、可选 LLM 审查 |
 
-v6.1 的 Dream 围绕三层仿生架构优化：
+V6.1 legacy Dream 围绕三层仿生架构优化：
 
 | 层 | Mnemosyne 对应组件 |
 |----|-------------------|
@@ -206,13 +206,13 @@ v6.1 的 Dream 围绕三层仿生架构优化：
 | REM 睡眠 | 增量发现 `similar_to` 和 `contradicts` |
 | 前额叶 | 可选 LLM 辅助矛盾判断和审查 |
 
-每天凌晨 3 点、中午 12 点和下午 5 点自动运行。也可以手动触发：
+V7 legacy dream 每天凌晨 3 点、中午 12 点和下午 5 点自动运行。也可以手动触发：
 
 ```bash
 python scripts/graph_dream.py --full
 ```
 
-后台的 `skill-daemon.cmd` 会在每次完整做梦后继续跑一轮技能闭环：
+V7 legacy 后台的 `skill-daemon.cmd` 会在每次完整做梦后继续跑一轮技能闭环：
 
 - 自动检查新 `embryo` 和 `needs_revision` 技能
 - 每个候选最多自动进化 2 轮
@@ -224,7 +224,7 @@ python scripts/graph_dream.py --full
 skill-daemon.cmd
 ```
 
-做梦结果不是黑盒日志。每次运行会写入结构化 `EvolutionReport`，包含新记忆、新概念、技能候选、技能变化、矛盾、推荐动作、目标 ID 和证据 ID。后台 daemon job 也会写入持久化 `telemetry_runs`，记录状态、耗时、摘要和错误。
+V7 legacy 做梦结果不是黑盒日志。每次运行会写入结构化 `EvolutionReport`，包含新记忆、新概念、技能候选、技能变化、矛盾、推荐动作、目标 ID 和证据 ID。后台 daemon job 也会写入持久化 `telemetry_runs`，记录状态、耗时、摘要和错误。
 
 ### Skill Memory System（技能记忆）
 
@@ -473,5 +473,7 @@ Mnemosyne 模拟人脑的几种关键记忆机制：
 <div align="center">
 
 **[FAQ →](faq.md)** · **[Benchmarks →](benchmarks.md)** · **[Why it matters →](why-it-matters.md)** · **[v7.0 Skill Memory Blueprint →](v7.0-skill-memory-system.md)** · **[v7.1 双边进化 →](v7.1-bilateral-skill-evolution.md)** · **[v7.2 证据回流 →](v7.2-skill-evidence-flow.md)** · **[v7.2 Release Notes →](releases/v7.2.0.md)** · **[Changelog →](../CHANGELOG.md)**
+
+**[V7 Archive Index →](../V7_ARCHIVE_INDEX.md)**
 
 </div>
