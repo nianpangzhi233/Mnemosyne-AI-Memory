@@ -46,6 +46,14 @@ def _send(msg):
     sys.stdout.flush()
 
 
+def _send_error(msg_id, code, message):
+    _send({
+        "jsonrpc": "2.0",
+        "id": msg_id,
+        "error": {"code": code, "message": message},
+    })
+
+
 def _get_registered_task_types():
     try:
         store = _get_store()
@@ -550,7 +558,11 @@ def main():
                 "jsonrpc": "2.0", "id": msg_id,
                 "result": {
                     "protocolVersion": "2024-11-05",
-                    "capabilities": {"tools": {"listChanged": False}},
+                    "capabilities": {
+                        "tools": {"listChanged": False},
+                        "prompts": {"listChanged": False},
+                        "resources": {"subscribe": False, "listChanged": False},
+                    },
                     "serverInfo": {"name": "mnemosyne", "version": "7.2.0"}
                 }
             })
@@ -563,6 +575,30 @@ def main():
                 "jsonrpc": "2.0", "id": msg_id,
                 "result": {"tools": _tools_list()}
             })
+
+        elif method == "prompts/list":
+            _send({
+                "jsonrpc": "2.0", "id": msg_id,
+                "result": {"prompts": []}
+            })
+
+        elif method == "resources/list":
+            _send({
+                "jsonrpc": "2.0", "id": msg_id,
+                "result": {"resources": []}
+            })
+
+        elif method == "resources/templates/list":
+            _send({
+                "jsonrpc": "2.0", "id": msg_id,
+                "result": {"resourceTemplates": []}
+            })
+
+        elif method == "prompts/get":
+            _send_error(msg_id, -32602, "No prompts are available")
+
+        elif method == "resources/read":
+            _send_error(msg_id, -32602, "No resources are available")
 
         elif method == "tools/call":
             tool_name = params.get("name", "")
@@ -596,6 +632,9 @@ def main():
         elif method == "shutdown":
             _send({"jsonrpc": "2.0", "id": msg_id, "result": None})
             break
+
+        elif msg_id is not None:
+            _send_error(msg_id, -32601, f"Unknown method: {method}")
 
 
 if __name__ == "__main__":
